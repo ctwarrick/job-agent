@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+
+# runtime data
+jobs.db
+run.log
+
+# secrets / personal
+.env
+profile.md
+screening_prompt.md
+registry.txt
