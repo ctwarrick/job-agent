@@ -140,3 +140,8 @@ Principles:
 - `agents/implementer.md` — green phase: minimal diff (sonnet)
 - `agents/reviewer.md` — independent diff review (top)
 - `agents/retrospective.md` — post-ship agent-performance review (top)
+
+<!-- SPECKIT START -->
+For additional context about technologies to be used, project structure,
+shell commands, and other important information, read the current plan
+<!-- SPECKIT END -->
