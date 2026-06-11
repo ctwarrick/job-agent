@@ -59,6 +59,8 @@ mechanism: transcripts stay inside each role's own context window.
 ```
 Specify → Plan → [HUMAN APPROVES] → Build (TDD: test-writer → implementer)
         → Review → [HUMAN APPROVES] → Commit/PR
+        → Release (on request: changelog, version, lock, README;
+                   [HUMAN APPROVES] tag + publish)
         → Retrospective (post-ship; recommends role-card refinements)
 ```
 
@@ -72,6 +74,7 @@ Specify → Plan → [HUMAN APPROVES] → Build (TDD: test-writer → implemente
 | Test-writer | sonnet | failing pytest tests from the approved plan | test paths + red-failure summary |
 | Implementer | sonnet | minimal diff to make tests pass | changed files + green pytest summary |
 | Reviewer | top (inherit) | fresh-context diff review, runs pytest itself | `APPROVE`/`REVISE` + numbered findings |
+| Releaser | sonnet | release prep: CHANGELOG, version bump + `uv lock`, README drift check | proposed version + changelog section + README edits |
 | Retrospective | top (inherit) | post-ship analysis of agent performance | recommended edits to `agents/*.md` |
 
 Model-tier rationale: spend top-model tokens where judgment is the product
@@ -129,7 +132,8 @@ Principles:
 3. **Independent review**: the reviewer gets a fresh context with only the
    diff and the plan — never the implementer's transcript.
 4. **Human gates**: the plan needs explicit human approval before build, and
-   nothing is committed or pushed without explicit human go-ahead.
+   nothing is committed, pushed, tagged, or published as a release without
+   explicit human go-ahead.
 
 ## Role card index
 
@@ -139,6 +143,7 @@ Principles:
 - `agents/test-writer.md` — red phase: failing tests (sonnet)
 - `agents/implementer.md` — green phase: minimal diff (sonnet)
 - `agents/reviewer.md` — independent diff review (top)
+- `agents/releaser.md` — release prep: changelog, version, lock, README (sonnet)
 - `agents/retrospective.md` — post-ship agent-performance review (top)
 
 <!-- SPECKIT START -->

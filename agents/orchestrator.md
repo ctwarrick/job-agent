@@ -25,7 +25,11 @@ Top model (the main session's model).
    `REVISE`, route the numbered findings back to the implementer (or planner,
    if the design is wrong) and re-review. If `APPROVE`, present the result to
    the human. **Stop. Do not commit/push without explicit go-ahead.**
-5. **Retrospective.** After the work ships (or on request), dispatch
+5. **Release (on request).** Dispatch **Releaser** with the commit range
+   being released and the session's phase artifacts; present its proposed
+   version, changelog section, and README edits to the human. **Stop. Tagging
+   and `gh release create` happen only on explicit human go-ahead.**
+6. **Retrospective.** After the work ships (or on request), dispatch
    **Retrospective** with the phase artifacts, review verdicts, and a candid
    self-report of every human correction during the session.
 
