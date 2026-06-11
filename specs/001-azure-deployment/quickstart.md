@@ -18,17 +18,29 @@ markers in [contracts/runtime-config.md](contracts/runtime-config.md).
 ## Bootstrap (once per environment; target ≤1 h per SC-006)
 
 1. `scripts/bootstrap.sh` — resource group + GitHub-OIDC deploy identity.
-2. `az deployment group create -g <rg> -f infra/main.bicep -p infra/main.bicepparam`
+2. Set the GitHub Actions repository secrets `ALERT_EMAIL`, `SMS_COUNTRY_CODE`,
+   `SMS_PHONE` — CI re-supplies these never-committed parameters on every deploy
+   ([deployment.md](contracts/deployment.md) → Never-committed parameters).
+3. `az deployment group create -g <rg> -f infra/main.bicep -p infra/main.bicepparam`
    (supply `smsCountryCode`/`smsPhone` and `alertEmail` as CLI parameters).
-3. Set the six Key Vault secrets (names in
+4. Set the six Key Vault secrets (names in
    [deployment.md](contracts/deployment.md) → Bootstrap contract).
-4. Upload the three runtime files with `az storage file upload` (FR-012 mechanism).
-5. Set the Anthropic Console spend limit (suggested $25/mo).
-6. Push to `main` (or re-run the workflow) so CI publishes the image and points the
+5. Upload the three runtime files with `az storage file upload` (FR-012 mechanism).
+6. Set an Anthropic Console spend **notification** (suggested $25/mo) — not a hard
+   limit, which would silently halt scoring (spec policy: alert-only; FR-013 is
+   the runaway protection).
+7. Push to `main` (or re-run the workflow) so CI publishes the image and points the
    job at it.
+8. Force an on-demand run (`az containerapp job start … --env-vars
+   JOBAGENT_FORCE=1`): validates the pipeline end-to-end — including outbound SMTP
+   from the platform (spec assumption) — and seeds `RUN_SUCCESS` so the
+   missed-deadline alert has a success marker for day one. SC-006's one-hour
+   clock stops when this run's digest arrives.
 
-Known cosmetic caveat: the absence-of-success alert fires until the first
-successful run completes (research §8).
+Known caveat: if bootstrap finishes after the day's delivery deadline without
+step 8, the missed-deadline alert fires once for that day — harmless, and step 8
+prevents it. Completing the US3 alert drill below is a **required** part of
+provisioning (contract: runtime-config.md → log-marker contract).
 
 ## Validation per user story
 
@@ -81,7 +93,7 @@ successful run completes (research §8).
 - In a fresh resource group, repeat Bootstrap start-to-finish using only repo
   contents + secrets + runtime files; time it (≤1 h, SC-006); confirm the next
   scheduled run delivers end-to-end, with no portal-only steps (FR-010).
-- Drift check: re-run the `az deployment group create` from step 2 unchanged;
+- Drift check: re-run the `az deployment group create` from step 3 unchanged;
   confirm it is a no-op that restores/declares the same state.
 
 ## Local development unchanged

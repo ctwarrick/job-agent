@@ -184,15 +184,31 @@ scheduled run completes end-to-end.
 - **Transient overnight failure**: a failed run retries automatically (up to 2
   attempts, ~15–30 minutes apart) before the delivery deadline; the
   independent-channel alert fires only when the final attempt fails.
-- **Overlapping runs**: if a run is still executing when the next would start, only
-  one run executes; state is never corrupted by concurrency.
+- **Overlapping runs**: if a run is still executing when the next would start —
+  scheduled or manual — only one run executes; an in-flight run is detected and
+  respected by every start path, and state is never corrupted by concurrency.
+- **Deployment fails after tests pass** (artifact publish or infrastructure step):
+  the previous version remains in service, the overnight schedule continues on it,
+  and the failure is visible to the maintainer through the CI system's own failure
+  notification — a channel distinct from the overnight-run alert path.
+- **Crash between email send and state commit**: digest delivery is at-least-once
+  across retries. Success state is recorded only after a confirmed send, so the
+  rare crash inside that window may produce a duplicate digest — accepted in
+  preference to a silently missing one.
 - **Runaway LLM usage**: a defect (e.g., accidentally un-scoring the whole store)
   cannot exceed the per-run bound on scoring calls.
 - **Spend approaching the ceiling**: the maintainer is alerted before the $50/month
   all-in ceiling is breached, covering both cloud and LLM billing.
-- **Aged data**: untouched postings (status `new` or `dismissed`) older than the
-  retention window (default two months) are purged on a regular cadence; postings
-  with application activity are never purged.
+- **Aged data**: untouched postings (status `new`, `dismissed`, or `duplicate`)
+  older than the retention window (default two months) are purged on a regular
+  cadence; postings with application activity are never purged.
+- **Re-surfaced known posting** (accepted failure mode): posting identity includes
+  the description text, so two same-title openings at the same company and location
+  are kept and scored as separate postings — but an edited description (or
+  board-specific boilerplate on a cross-post) makes an already-seen role reappear
+  in a digest as new. Accepted in preference to silently dropping a genuinely
+  distinct posting; the maintainer flags the re-surfaced row as a duplicate, which
+  suppresses it permanently.
 
 ## Requirements *(mandatory)*
 
@@ -202,7 +218,9 @@ scheduled run completes end-to-end.
   automatically on a daily schedule, with no dependency on any local machine or
   manual trigger.
 - **FR-002**: System MUST deliver the digest email by 06:00 America/Los_Angeles by
-  default; the delivery time and timezone MUST be configurable without code changes.
+  default; the delivery time and timezone MUST be configurable without application
+  code changes. Changing an infrastructure parameter and redeploying is an
+  acceptable mechanism; editing application code is not.
 - **FR-003**: System MUST send an email on every successful scheduled run — a digest
   when matches exist, a "no new matches" notice otherwise — so that the absence of
   an email always indicates failure.
@@ -219,9 +237,15 @@ scheduled run completes end-to-end.
   own email sending.
 - **FR-007**: System MUST retain logs for each run, accessible after the fact,
   sufficient to diagnose a failed or degraded run without interactive re-execution.
+  Logs and alert payloads MUST NOT contain secret values, personal runtime-file
+  contents, or LLM scoring rationale; naming a registry company in per-source
+  status is acceptable because the log store is private (maintainer-only access).
 - **FR-008**: Every push to `main` MUST run the full test suite first and deploy to
   production only when all tests pass; a failing suite MUST block deployment with no
-  override path.
+  override path within the automated pipeline — no manual-approval bypass, no
+  deploy trigger that skips the test stage, and no continue-on-error in the chain.
+  (Provisioning-time deployments run by the maintainer outside CI, per the
+  documented bootstrap, are not overrides of this gate.)
 - **FR-009**: Deployment after a green test run MUST complete without any human
   action beyond the push itself.
 - **FR-010**: All production infrastructure MUST be declared as code in the
@@ -246,20 +270,34 @@ scheduled run completes end-to-end.
   consumed only while a run or deployment is executing.
 - **FR-017**: System MUST ensure at most one pipeline run executes at a time.
 - **FR-018**: System MUST automatically retry a failed overnight run up to 2 times,
-  spaced approximately 15–30 minutes apart, with all attempts completing before the
-  configured delivery deadline; the failure alert fires only if the final attempt
-  fails.
+  spaced approximately 15–30 minutes apart (a fixed scheduler interval within that
+  window satisfies this); every attempt, including its maximum permitted run
+  duration, MUST complete before the configured delivery deadline; the failure
+  alert fires only if the final attempt fails.
 - **FR-019**: System MUST provide a documented on-demand trigger that lets the
   maintainer — and only the maintainer — start a full pipeline run outside the
   schedule, for recovery after a failed night or verification after runtime-file
-  updates. Concurrency protection (FR-017) applies to manual runs as well.
+  updates. "Only the maintainer" MUST be enforced by a stated access-control rule,
+  not convention. Concurrency protection (FR-017) applies to manual runs as well.
+- **FR-020**: System MUST treat LLM-scoring unavailability, and exhaustion of the
+  per-run call bound (FR-013), as non-fatal degradation: the run continues,
+  unscored postings remain queued for a later run, the digest is delivered with
+  the already-scored matches, and the degradation is reported in the digest.
+- **FR-021**: The deployable artifact MAY be publicly hosted but MUST contain only
+  code and configuration already public in the repository; personal runtime files,
+  pipeline state, and secret values MUST reach the application only at runtime.
+- **FR-022**: Every production identity (deployment, job runtime, alerting) MUST
+  hold only the permissions its function requires, enumerated per identity in the
+  infrastructure contract; access to personal-data stores and to the on-demand
+  trigger MUST be limited to the identities that enumeration names.
 
 ### Key Entities
 
 - **Posting**: a normalized job posting (title, company, location, URL, scores,
-  rationale, sent-tracking); deduplicated by fingerprint; subject to retention.
+  rationale, sent-tracking); deduplicated by a content fingerprint over title,
+  company, location, and description; subject to retention.
 - **Application record**: maintainer-facing status per posting (new, dismissed,
-  applied…); joins postings to digest eligibility.
+  duplicate, applied…); joins postings to digest eligibility.
 - **Run**: one scheduled or manual execution of the pipeline, with a start time,
   outcome (success / degraded / failed), and retrievable logs.
 - **Personal runtime files**: `profile.md`, `screening_prompt.md`, `registry.txt` —
@@ -273,7 +311,9 @@ scheduled run completes end-to-end.
 
 - **SC-001**: For 30 consecutive days, an email (digest or no-matches notice) is in
   the maintainer's inbox by 06:00 Pacific every morning with zero manual
-  interventions.
+  interventions. At ship time the feature is accepted on three pieces of evidence
+  — one unattended scheduled run delivering on time, a passed alert drill, and a
+  verified on-demand trigger; the 30-day window is then monitored post-ship.
 - **SC-002**: Total monthly spend across all providers stays at or under $50,
   verifiable on both bills.
 - **SC-003**: A change pushed to `main` is live in production within 15 minutes,
@@ -285,7 +325,9 @@ scheduled run completes end-to-end.
   logs alone, without re-running the pipeline.
 - **SC-006**: A complete production environment can be recreated from the
   repository, secrets, and runtime files in under one hour following the documented
-  procedure.
+  procedure. The hour is measured from starting the documented bootstrap — with
+  credentials, secret values, and runtime files already at hand — to a completed
+  on-demand run that delivers a digest.
 - **SC-007**: The maintainer can always distinguish "no matching jobs today" from
   "the system is broken" from the inbox alone.
 
@@ -296,11 +338,24 @@ scheduled run completes end-to-end.
   application-side changes limited to cloud-operation needs (empty-day notice,
   per-source degradation, LLM call bound, retention purge, storage location
   configurability).
+- The default scoring model is updated as part of this feature because the current
+  default is being retired by the provider. Selecting the cost-efficient current
+  tier is a configuration-default change sanctioned by cost discipline, not a
+  scoring-logic change; any drift in score values across the model change is
+  accepted.
+- Outbound SMTP submission from the chosen compute platform is assumed to be
+  permitted; the provisioning validation run verifies it, and a fallback email
+  mechanism is a decision deferred until that assumption is disproven.
 - Production starts with an empty data store: historical postings, scores, and
   dismissals in the local development database are not migrated. Postings re-fetch
-  naturally; prior dismissal history is accepted as lost.
+  naturally; prior dismissal history is accepted as lost. The first runs work
+  through the initial backlog under the per-run LLM call bound, so early digests
+  may report scoring degradation until it clears; alternatively the maintainer may
+  backfill via the on-demand trigger with a temporarily raised bound.
 - Sender and recipient email addresses are supplied via configuration, not recorded
-  in the repository or this spec.
+  in the repository or this spec. The same applies to alert receivers (the alert
+  email address and SMS number): they are supplied as deploy-time parameters from
+  the CI secret store on every deployment, never committed.
 - The Azure tenant ID is supplied as deployment-time configuration by the
   maintainer and is never committed.
 - A single production environment is sufficient: no staging environment, and no

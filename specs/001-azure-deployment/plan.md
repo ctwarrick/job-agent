@@ -16,8 +16,9 @@ from the repository. Technical approach ([research.md](research.md)): the unchan
 trigger, cron `0,20,40 11 * * *` UTC) whose three spaced ticks plus an idempotent
 `runs`-table check implement the clarified retry policy; state stays in **SQLite on
 an Azure Files share** (also home to the private runtime files); secrets live in
-**Key Vault** referenced via managed identity; failure alerting is an
-absence-of-success **Log Analytics scheduled query alert** firing an action group
+**Key Vault** referenced via managed identity; failure alerting is a
+missed-deadline **Log Analytics scheduled query alert** (keyed on the day's
+`digest_date` so manual/no-op runs can't mask a failure) firing an action group
 (email + SMS); CI/CD is **GitHub Actions with OIDC** (pytest → ghcr.io image →
 Bicep deploy); all infrastructure is **Bicep** under `infra/`. Application changes
 are the minimal cloud-operation set (research §12): `JOBAGENT_DATA_DIR`, `runs`
@@ -101,8 +102,8 @@ specs/001-azure-deployment/
 
 ```text
 src/job_agent/
-├── schema.py            # unchanged
-├── store.py             # MODIFIED: runs table, retention purge, data-dir path
+├── schema.py            # MODIFIED: fingerprint adds description to the key (data-model.md "Dedupe identity revision")
+├── store.py             # MODIFIED: runs table, retention purge (incl. 'duplicate' status), fingerprint re-key migration, data-dir path
 ├── fetch.py             # MODIFIED: capture per-source failures (FR-005)
 ├── score.py             # MODIFIED: JOBAGENT_MAX_LLM_CALLS cap, model default bump
 ├── digest.py            # MODIFIED: empty-day notice email, degraded-source notice
