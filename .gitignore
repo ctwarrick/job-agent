@@ -10,6 +10,9 @@ dist/
 jobs.db
 run.log
 
+# working docs
+docs/work
+
 # secrets / personal
 .env
 profile.md
