@@ -124,6 +124,12 @@ scripts/
 
 .github/workflows/
 └── deploy.yml           # NEW: test → build/push (ghcr) → az deploy (OIDC)
+
+README.md                # MODIFIED: "Deploy your own instance" section — points to
+                         #   specs/001-azure-deployment/quickstart.md and lists the
+                         #   fork-specific configuration (own subscription/tenant,
+                         #   bootstrap with own repo slug, ghcr package visibility,
+                         #   per-fork repo variables, own runtime files + secrets)
 ```
 
 **Structure Decision**: Single existing Python project; cloud-operation changes

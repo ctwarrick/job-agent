@@ -143,7 +143,6 @@ Principles:
 
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
-shell commands, and other important information, read the current plan:
-`specs/001-azure-deployment/plan.md` (design details in `research.md`,
-`data-model.md`, `contracts/`, and `quickstart.md` alongside it).
+shell commands, and other important information, read the current plan
+at specs/001-azure-deployment/plan.md
 <!-- SPECKIT END -->
