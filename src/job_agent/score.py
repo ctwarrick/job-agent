@@ -62,7 +62,19 @@ Return a JSON array of exactly {n} objects, same order as the postings. Each:
 Output ONLY the JSON array."""
 
 
-def _format_postings(rows) -> str:
+def _format_postings(rows: list[dict]) -> str:
+    """Format a list of posting dicts into a text block for the prompt.
+
+    Truncates each description to DESC_CHARS and includes fingerprint,
+    title, company, and location.
+
+    Args:
+        rows: List of posting dicts with at least fingerprint, title,
+            company, location, description fields.
+
+    Returns:
+        Formatted text block for inclusion in PROMPT_TEMPLATE.
+    """
     blocks = []
     for r in rows:
         desc = (r["description"] or "")[:DESC_CHARS]
@@ -76,7 +88,24 @@ def _format_postings(rows) -> str:
     return "\n\n".join(blocks)
 
 
-def _score_batch(client, system, profile, rows) -> list[dict]:
+def _score_batch(client: Anthropic, system: str, profile: str, rows: list[dict]) -> list[dict]:
+    """Score a batch of postings using the Anthropic API.
+
+    Calls claude with the system prompt, profile, and formatted postings.
+    Expects a JSON array response with scoring fields (skills_fit, etc.).
+
+    Args:
+        client: Anthropic client instance.
+        system: System prompt text (from screening_prompt.md).
+        profile: Profile text (from profile.md).
+        rows: List of posting dicts with at least fingerprint, title,
+            company, location, description.
+
+    Returns:
+        List of dicts, each with at least fingerprint and score fields
+        (skills_fit, seniority_fit, category_risk, bucket, comp_flag,
+        trajectory_note).
+    """
     prompt = PROMPT_TEMPLATE.format(
         profile=profile,
         floor=SALARY_FLOOR,
@@ -97,6 +126,18 @@ def _score_batch(client, system, profile, rows) -> list[dict]:
 
 
 def _write_scores(scores: list[dict], path: str | None = None) -> None:
+    """Write LLM-generated scores back to the postings table.
+
+    For each score dict, updates the corresponding posting row with
+    skills_fit, seniority_fit, category_risk, and a JSON rationale
+    (bucket, comp_flag, trajectory_note).
+
+    Args:
+        scores: List of score dicts, each with fingerprint, skills_fit,
+            seniority_fit, category_risk, bucket, comp_flag,
+            trajectory_note.
+        path: Optional path to jobs.db; defaults to data_path("jobs.db").
+    """
     with store.connect(path) as conn:
         for s in scores:
             conn.execute(

@@ -1,9 +1,11 @@
 """Fetch orchestrator.
 
 Reads registry.txt, dispatches each company to the right ATS adapter,
-normalizes, and upserts into SQLite. Adding a new ATS = write an adapter
-with a fetch(slug) -> List[Posting] signature and register it in ADAPTERS.
+normalizes, and upserts into SQLite. Adding a new ATS means writing an
+adapter with a fetch(slug) -> list[Posting] signature and registering it
+in ADAPTERS.
 """
+
 from __future__ import annotations
 
 import sys
@@ -19,6 +21,19 @@ ADAPTERS = {
 
 
 def load_registry(path: str | None = None) -> list[tuple[str, str]]:
+    """Parse registry.txt and return (vendor, slug) tuples.
+
+    Skips blank lines and comments (# to end of line). Lowercases vendor
+    names for comparison against ADAPTERS keys.
+
+    Args:
+        path: Optional path to registry.txt; defaults to
+            data_path("registry.txt").
+
+    Returns:
+        List of (vendor, slug) tuples, one per valid registry line.
+        Malformed lines are logged to stderr and skipped.
+    """
     entries = []
     path = path or store.data_path("registry.txt")
     for line in Path(path).read_text().splitlines():

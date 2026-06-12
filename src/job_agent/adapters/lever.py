@@ -6,10 +6,10 @@ Public postings API, no auth required:
 Returns a flat JSON array. Description comes back as both `description`
 (HTML) and `descriptionPlain`; we prefer the plain text when present.
 """
+
 from __future__ import annotations
 
 import time
-from typing import List
 
 import requests
 
@@ -19,16 +19,28 @@ BASE = "https://api.lever.co/v0/postings/{slug}"
 HEADERS = {"User-Agent": "jobagent/0.1 (personal job search)"}
 
 
-def fetch(slug: str, *, timeout: int = 20) -> List[Posting]:
-    """Return all open postings for one Lever account."""
+def fetch(slug: str, *, timeout: int = 20) -> list[Posting]:
+    """Fetch all open postings for one Lever account.
+
+    Calls the public Lever postings API. Prefers descriptionPlain over
+    the HTML description field.
+
+    Args:
+        slug: Lever account slug (e.g. 'stripe').
+        timeout: Request timeout in seconds (default 20).
+
+    Returns:
+        List of normalized Posting objects.
+
+    Raises:
+        requests.HTTPError: On API request failure.
+    """
     url = BASE.format(slug=slug)
-    resp = requests.get(
-        url, params={"mode": "json"}, headers=HEADERS, timeout=timeout
-    )
+    resp = requests.get(url, params={"mode": "json"}, headers=HEADERS, timeout=timeout)
     resp.raise_for_status()
     jobs = resp.json()  # Lever returns a top-level list
 
-    postings: List[Posting] = []
+    postings: list[Posting] = []
     for job in jobs:
         cats = job.get("categories") or {}
         loc = cats.get("location", "")
@@ -38,9 +50,8 @@ def fetch(slug: str, *, timeout: int = 20) -> List[Posting]:
         posted_iso = None
         if ts:
             from datetime import datetime, timezone
-            posted_iso = datetime.fromtimestamp(
-                ts / 1000, tz=timezone.utc
-            ).isoformat()
+
+            posted_iso = datetime.fromtimestamp(ts / 1000, tz=timezone.utc).isoformat()
 
         postings.append(
             normalize(

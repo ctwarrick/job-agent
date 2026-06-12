@@ -1,14 +1,13 @@
+from pathlib import Path
+
 from job_agent import fetch
 from job_agent.fetch import load_registry
 
 
-def test_load_registry_skips_comments_and_blank_lines(tmp_path):
+def test_load_registry_skips_comments_and_blank_lines(tmp_path: Path) -> None:
     registry = tmp_path / "registry.txt"
     registry.write_text(
-        "# header comment\n"
-        "\n"
-        "greenhouse stripe\n"
-        "lever plaid # trailing comment\n"
+        "# header comment\n" "\n" "greenhouse stripe\n" "lever plaid # trailing comment\n"
     )
     assert load_registry(str(registry)) == [
         ("greenhouse", "stripe"),
@@ -16,20 +15,20 @@ def test_load_registry_skips_comments_and_blank_lines(tmp_path):
     ]
 
 
-def test_load_registry_lowercases_vendor(tmp_path):
+def test_load_registry_lowercases_vendor(tmp_path: Path) -> None:
     registry = tmp_path / "registry.txt"
     registry.write_text("Greenhouse stripe\n")
     assert load_registry(str(registry)) == [("greenhouse", "stripe")]
 
 
-def test_load_registry_skips_malformed_lines(tmp_path, capsys):
+def test_load_registry_skips_malformed_lines(tmp_path: Path, capsys) -> None:
     registry = tmp_path / "registry.txt"
     registry.write_text("greenhouse\nlever plaid\n")
     assert load_registry(str(registry)) == [("lever", "plaid")]
     assert "malformed" in capsys.readouterr().err
 
 
-def test_load_registry_default_resolves_under_data_dir(tmp_path, monkeypatch):
+def test_load_registry_default_resolves_under_data_dir(tmp_path: Path, monkeypatch) -> None:
     data_dir = tmp_path / "data"
     cwd_dir = tmp_path / "cwd"
     data_dir.mkdir()

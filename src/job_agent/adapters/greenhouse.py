@@ -6,11 +6,11 @@ Public board API, no auth required:
 The ?content=true flag returns the full job description (HTML-escaped) inline,
 which saves a second round-trip per job.
 """
+
 from __future__ import annotations
 
 import html
 import time
-from typing import List
 
 import requests
 
@@ -20,19 +20,32 @@ BASE = "https://boards-api.greenhouse.io/v1/boards/{slug}/jobs"
 HEADERS = {"User-Agent": "jobagent/0.1 (personal job search)"}
 
 
-def fetch(slug: str, *, timeout: int = 20) -> List[Posting]:
-    """Return all open postings for one Greenhouse board."""
+def fetch(slug: str, *, timeout: int = 20) -> list[Posting]:
+    """Fetch all open postings for one Greenhouse board.
+
+    Calls the public Greenhouse Boards API with ?content=true to get
+    full descriptions inline.
+
+    Args:
+        slug: Greenhouse board slug (e.g. 'stripe').
+        timeout: Request timeout in seconds (default 20).
+
+    Returns:
+        List of normalized Posting objects.
+
+    Raises:
+        requests.HTTPError: On API request failure.
+    """
     url = BASE.format(slug=slug)
-    resp = requests.get(
-        url, params={"content": "true"}, headers=HEADERS, timeout=timeout
-    )
+    resp = requests.get(url, params={"content": "true"}, headers=HEADERS, timeout=timeout)
     resp.raise_for_status()
     data = resp.json()
 
-    postings: List[Posting] = []
+    postings: list[Posting] = []
     for job in data.get("jobs", []):
         loc = (job.get("location") or {}).get("name", "")
-        # content is HTML-escaped HTML; unescape once, schema._clean strips tags
+        # content is HTML-escaped HTML; unescape once,
+        # schema._clean strips tags
         desc = html.unescape(job.get("content", ""))
         postings.append(
             normalize(

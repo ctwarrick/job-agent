@@ -43,6 +43,7 @@ Each stage is also exposed as its own console script (jobagent-fetch /
 jobagent-score / jobagent-digest) for debugging, or for a split serverless
 deployment where each stage is a separate function.
 """
+
 from __future__ import annotations
 
 import os
@@ -71,14 +72,14 @@ def main() -> None:
 
     run_id = store.start_run(digest_date)
     with store.connect() as conn:
-        attempt = conn.execute(
-            "SELECT attempt FROM runs WHERE id=?", (run_id,)
-        ).fetchone()["attempt"]
+        attempt = conn.execute("SELECT attempt FROM runs WHERE id=?", (run_id,)).fetchone()[
+            "attempt"
+        ]
 
     try:
-        fetch.main()    # pull + store new postings
-        score.main()    # LLM-score the unscored ones
-        sent = digest.main()   # email high-fit, low-risk, not-yet-sent postings (or notice)
+        fetch.main()  # pull + store new postings
+        score.main()  # LLM-score the unscored ones
+        sent = digest.main()  # email high-fit, low-risk, not-yet-sent postings (or notice)
     except SystemExit as e:
         store.finish_run(
             run_id,

@@ -1,8 +1,10 @@
+from pathlib import Path
+
 from job_agent import digest
 from job_agent.digest import _group, _render_text
 
 
-def test_group_buckets_by_field_and_defaults_to_other():
+def test_group_buckets_by_field_and_defaults_to_other() -> None:
     rows = [
         {"bucket": "engineering", "title": "A"},
         {"bucket": "tpm", "title": "B"},
@@ -13,7 +15,7 @@ def test_group_buckets_by_field_and_defaults_to_other():
     assert groups["other"][0]["title"] == "C"
 
 
-def test_render_text_includes_posting_details():
+def test_render_text_includes_posting_details() -> None:
     groups = {
         "engineering": [
             {
@@ -34,7 +36,7 @@ def test_render_text_includes_posting_details():
     assert "LOWBALL" not in text
 
 
-def test_render_text_flags_lowball_comp():
+def test_render_text_flags_lowball_comp() -> None:
     groups = {
         "engineering": [
             {
@@ -54,7 +56,7 @@ def test_render_text_flags_lowball_comp():
 # --- empty-day notice + confirmed-send return (FR-003, FR-004) -------------
 
 
-def _set_smtp_env(monkeypatch):
+def _set_smtp_env(monkeypatch) -> None:
     monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
     monkeypatch.setenv("SMTP_PORT", "587")
     monkeypatch.setenv("SMTP_USER", "me@example.com")
@@ -64,9 +66,12 @@ def _set_smtp_env(monkeypatch):
     monkeypatch.delenv("JOBAGENT_DATA_DIR", raising=False)
 
 
-def test_main_sends_no_new_matches_notice_when_nothing_qualifies(tmp_path, monkeypatch):
+def test_main_sends_no_new_matches_notice_when_nothing_qualifies(
+    tmp_path: Path, monkeypatch
+) -> None:
     db = tmp_path / "jobs.db"
     from job_agent import store
+
     store.init(str(db))
     monkeypatch.chdir(tmp_path)
 
@@ -74,7 +79,7 @@ def test_main_sends_no_new_matches_notice_when_nothing_qualifies(tmp_path, monke
 
     sent = {}
 
-    def fake_send(subject, text, html):
+    def fake_send(subject: str, text: str, html: str) -> None:
         sent["subject"] = subject
         sent["text"] = text
 
@@ -87,7 +92,7 @@ def test_main_sends_no_new_matches_notice_when_nothing_qualifies(tmp_path, monke
     assert result is True
 
 
-def test_main_returns_true_only_after_confirmed_send(tmp_path, monkeypatch):
+def test_main_returns_true_only_after_confirmed_send(tmp_path: Path, monkeypatch) -> None:
     db = tmp_path / "jobs.db"
     from job_agent import store
     from job_agent.schema import normalize
@@ -126,15 +131,16 @@ def test_main_returns_true_only_after_confirmed_send(tmp_path, monkeypatch):
     assert row["digest_sent_at"] is not None
 
 
-def test_main_returns_false_when_send_fails(tmp_path, monkeypatch):
+def test_main_returns_false_when_send_fails(tmp_path: Path, monkeypatch) -> None:
     db = tmp_path / "jobs.db"
     from job_agent import store
+
     store.init(str(db))
     monkeypatch.chdir(tmp_path)
 
     _set_smtp_env(monkeypatch)
 
-    def boom(subject, text, html):
+    def boom(subject: str, text: str, html: str) -> None:
         raise RuntimeError("smtp down")
 
     monkeypatch.setattr(digest, "_send", boom)
@@ -144,9 +150,10 @@ def test_main_returns_false_when_send_fails(tmp_path, monkeypatch):
     assert result is False
 
 
-def test_main_dry_run_does_not_send_but_still_reports(tmp_path, monkeypatch):
+def test_main_dry_run_does_not_send_but_still_reports(tmp_path: Path, monkeypatch) -> None:
     db = tmp_path / "jobs.db"
     from job_agent import store
+
     store.init(str(db))
     monkeypatch.chdir(tmp_path)
 
@@ -164,7 +171,7 @@ def test_main_dry_run_does_not_send_but_still_reports(tmp_path, monkeypatch):
 # --- JOBAGENT_DATA_DIR resolution (defect 2) --------------------------------
 
 
-def test_main_reads_and_marks_sent_in_data_dir_db(tmp_path, monkeypatch):
+def test_main_reads_and_marks_sent_in_data_dir_db(tmp_path: Path, monkeypatch) -> None:
     """digest.main() must resolve jobs.db through JOBAGENT_DATA_DIR, not a
     hardcoded "jobs.db" relative to cwd: a qualifying posting seeded into the
     data-dir db must be picked up and marked sent there, even when cwd is
@@ -215,7 +222,7 @@ def test_main_reads_and_marks_sent_in_data_dir_db(tmp_path, monkeypatch):
     assert row["digest_sent_at"] is not None
 
 
-def _set_smtp_env_keep_data_dir(monkeypatch):
+def _set_smtp_env_keep_data_dir(monkeypatch) -> None:
     """Like _set_smtp_env but leaves JOBAGENT_DATA_DIR alone."""
     monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
     monkeypatch.setenv("SMTP_PORT", "587")

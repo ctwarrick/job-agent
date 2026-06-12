@@ -1,12 +1,13 @@
 import hashlib
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from job_agent import store
-from job_agent.schema import normalize
+from job_agent.schema import Posting, normalize
 
 
-def _posting(**overrides):
+def _posting(**overrides: str | int) -> Posting:
     fields = dict(
         source="greenhouse",
         company="acme",
@@ -20,18 +21,17 @@ def _posting(**overrides):
     return normalize(**fields)
 
 
-def test_init_creates_tables(tmp_path):
+def test_init_creates_tables(tmp_path: Path) -> None:
     db = str(tmp_path / "jobs.db")
     store.init(db)
     with store.connect(db) as conn:
         tables = {
-            r["name"]
-            for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            r["name"] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }
     assert {"postings", "applications"}.issubset(tables)
 
 
-def test_upsert_postings_is_idempotent(tmp_path):
+def test_upsert_postings_is_idempotent(tmp_path: Path) -> None:
     db = str(tmp_path / "jobs.db")
     store.init(db)
     posting = _posting()
@@ -42,7 +42,7 @@ def test_upsert_postings_is_idempotent(tmp_path):
     assert store.upsert_postings([posting], db) == 0
 
 
-def test_unscored_returns_only_unscored_postings(tmp_path):
+def test_unscored_returns_only_unscored_postings(tmp_path: Path) -> None:
     db = str(tmp_path / "jobs.db")
     store.init(db)
     posting = _posting()
@@ -61,7 +61,7 @@ def test_unscored_returns_only_unscored_postings(tmp_path):
     assert store.unscored(db) == []
 
 
-def test_init_default_path_uses_data_dir(tmp_path, monkeypatch):
+def test_init_default_path_uses_data_dir(tmp_path: Path, monkeypatch) -> None:
     data_dir = tmp_path / "data"
     cwd_dir = tmp_path / "cwd"
     data_dir.mkdir()
@@ -76,12 +76,12 @@ def test_init_default_path_uses_data_dir(tmp_path, monkeypatch):
     assert not (cwd_dir / "jobs.db").exists()
 
 
-def test_data_path_defaults_to_local_when_unset(monkeypatch):
+def test_data_path_defaults_to_local_when_unset(monkeypatch) -> None:
     monkeypatch.delenv("JOBAGENT_DATA_DIR", raising=False)
     assert store.data_path("jobs.db") == "jobs.db"
 
 
-def test_migrate_rekeys_fingerprints_and_preserves_state(tmp_path):
+def test_migrate_rekeys_fingerprints_and_preserves_state(tmp_path: Path) -> None:
     db = str(tmp_path / "jobs.db")
 
     title, company, location, description = "Engineer", "Acme", "Remote", "Build things."
@@ -89,7 +89,9 @@ def test_migrate_rekeys_fingerprints_and_preserves_state(tmp_path):
         f"{title.lower()}|{company.lower()}|{location.lower()}".encode("utf-8")
     ).hexdigest()[:16]
     new_fingerprint = hashlib.sha256(
-        f"{title.lower()}|{company.lower()}|{location.lower()}|{description.lower()}".encode("utf-8")
+        f"{title.lower()}|{company.lower()}|{location.lower()}|{description.lower()}".encode(
+            "utf-8"
+        )
     ).hexdigest()[:16]
     assert old_fingerprint != new_fingerprint
 
@@ -149,7 +151,7 @@ def test_migrate_rekeys_fingerprints_and_preserves_state(tmp_path):
 # --- runs table (data-model.md "runs") -------------------------------------
 
 
-def test_init_creates_runs_table_with_expected_columns(tmp_path):
+def test_init_creates_runs_table_with_expected_columns(tmp_path: Path) -> None:
     db = str(tmp_path / "jobs.db")
     store.init(db)
     with store.connect(db) as conn:
@@ -166,7 +168,7 @@ def test_init_creates_runs_table_with_expected_columns(tmp_path):
     }
 
 
-def test_start_run_assigns_one_based_attempt_per_digest_date(tmp_path):
+def test_start_run_assigns_one_based_attempt_per_digest_date(tmp_path: Path) -> None:
     db = str(tmp_path / "jobs.db")
     store.init(db)
 
@@ -175,10 +177,7 @@ def test_start_run_assigns_one_based_attempt_per_digest_date(tmp_path):
     other_day_id = store.start_run("2026-06-12", db)
 
     with store.connect(db) as conn:
-        rows = {
-            r["id"]: r
-            for r in conn.execute("SELECT * FROM runs").fetchall()
-        }
+        rows = {r["id"]: r for r in conn.execute("SELECT * FROM runs").fetchall()}
 
     assert rows[first_id]["attempt"] == 1
     assert rows[first_id]["digest_date"] == "2026-06-11"
@@ -188,7 +187,7 @@ def test_start_run_assigns_one_based_attempt_per_digest_date(tmp_path):
     assert rows[other_day_id]["attempt"] == 1
 
 
-def test_finish_run_sets_outcome_and_failure_detail(tmp_path):
+def test_finish_run_sets_outcome_and_failure_detail(tmp_path: Path) -> None:
     db = str(tmp_path / "jobs.db")
     store.init(db)
 
@@ -210,14 +209,14 @@ def test_finish_run_sets_outcome_and_failure_detail(tmp_path):
     assert "greenhouse" in row["failed_sources"]
 
 
-def test_startup_decision_proceeds_with_no_prior_runs(tmp_path):
+def test_startup_decision_proceeds_with_no_prior_runs(tmp_path: Path) -> None:
     db = str(tmp_path / "jobs.db")
     store.init(db)
 
     assert store.startup_decision("2026-06-11", force=False, path=db) == "proceed"
 
 
-def test_startup_decision_blocks_on_fresh_inflight_run_even_with_force(tmp_path):
+def test_startup_decision_blocks_on_fresh_inflight_run_even_with_force(tmp_path: Path) -> None:
     db = str(tmp_path / "jobs.db")
     store.init(db)
 
@@ -233,7 +232,7 @@ def test_startup_decision_blocks_on_fresh_inflight_run_even_with_force(tmp_path)
     assert store.startup_decision("2026-06-11", force=True, path=db) == "skip_inflight"
 
 
-def test_startup_decision_marks_stale_inflight_failed_and_proceeds(tmp_path):
+def test_startup_decision_marks_stale_inflight_failed_and_proceeds(tmp_path: Path) -> None:
     db = str(tmp_path / "jobs.db")
     store.init(db)
 
@@ -252,7 +251,7 @@ def test_startup_decision_marks_stale_inflight_failed_and_proceeds(tmp_path):
     assert row["outcome"] == "failed"
 
 
-def test_startup_decision_skips_already_succeeded_unless_forced(tmp_path):
+def test_startup_decision_skips_already_succeeded_unless_forced(tmp_path: Path) -> None:
     db = str(tmp_path / "jobs.db")
     store.init(db)
 
@@ -263,7 +262,7 @@ def test_startup_decision_skips_already_succeeded_unless_forced(tmp_path):
     assert store.startup_decision("2026-06-11", force=True, path=db) == "proceed"
 
 
-def test_startup_decision_skips_degraded_outcome_too(tmp_path):
+def test_startup_decision_skips_degraded_outcome_too(tmp_path: Path) -> None:
     db = str(tmp_path / "jobs.db")
     store.init(db)
 
@@ -276,13 +275,13 @@ def test_startup_decision_skips_degraded_outcome_too(tmp_path):
 # --- digest_date (JOBAGENT_TZ, zoneinfo) ------------------------------------
 
 
-def test_digest_date_defaults_to_los_angeles(monkeypatch):
+def test_digest_date_defaults_to_los_angeles(monkeypatch) -> None:
     monkeypatch.delenv("JOBAGENT_TZ", raising=False)
     expected = datetime.now(ZoneInfo("America/Los_Angeles")).strftime("%Y-%m-%d")
     assert store.digest_date() == expected
 
 
-def test_digest_date_honors_jobagent_tz(monkeypatch):
+def test_digest_date_honors_jobagent_tz(monkeypatch) -> None:
     monkeypatch.setenv("JOBAGENT_TZ", "UTC")
     expected = datetime.now(ZoneInfo("UTC")).strftime("%Y-%m-%d")
     assert store.digest_date() == expected

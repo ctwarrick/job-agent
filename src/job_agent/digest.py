@@ -15,6 +15,7 @@ Env (all required unless noted):
   DIGEST_MAX_RISK      optional, default 4
   DIGEST_DRY_RUN       optional, "1" prints instead of sending
 """
+
 from __future__ import annotations
 
 import json
@@ -53,6 +54,18 @@ BUCKET_LABEL = {
 
 
 def _fetch_digest(path: str | None = None) -> list[dict]:
+    """Fetch qualifying postings and merge in LLM-scoring rationale.
+
+    Runs QUERY to get postings with skills_fit >= MIN_SKILLS,
+    category_risk <= MAX_RISK, status='new', and not yet digest-sent.
+    Deserializes each posting's rationale JSON and merges it into the row.
+
+    Args:
+        path: Optional path to jobs.db; defaults to data_path("jobs.db").
+
+    Returns:
+        List of posting dicts, each with posting and rationale fields.
+    """
     with store.connect(path) as conn:
         rows = conn.execute(QUERY, (MIN_SKILLS, MAX_RISK)).fetchall()
     out = []
@@ -63,6 +76,14 @@ def _fetch_digest(path: str | None = None) -> list[dict]:
 
 
 def _group(rows: list[dict]) -> dict[str, list[dict]]:
+    """Group posting dicts by bucket.
+
+    Args:
+        rows: List of posting dicts with a 'bucket' field.
+
+    Returns:
+        Dict mapping bucket name (or 'other' if missing) to list of rows.
+    """
     groups: dict[str, list[dict]] = {}
     for r in rows:
         groups.setdefault(r.get("bucket") or "other", []).append(r)
@@ -70,6 +91,14 @@ def _group(rows: list[dict]) -> dict[str, list[dict]]:
 
 
 def _render_text(groups: dict[str, list[dict]]) -> str:
+    """Render posting groups as plain-text digest.
+
+    Args:
+        groups: Dict mapping bucket name to list of posting dicts.
+
+    Returns:
+        Plain-text digest with bucket headers and posting details.
+    """
     lines = ["Your job digest", "=" * 40, ""]
     for bucket, rows in groups.items():
         lines.append(f"## {BUCKET_LABEL.get(bucket, bucket)} ({len(rows)})")
@@ -86,15 +115,33 @@ def _render_text(groups: dict[str, list[dict]]) -> str:
 
 
 def _render_html(groups: dict[str, list[dict]]) -> str:
-    parts = ['<div style="font-family:system-ui,sans-serif;max-width:680px">',
-             "<h2>Your job digest</h2>"]
+    """Render posting groups as HTML digest.
+
+    Args:
+        groups: Dict mapping bucket name to list of posting dicts.
+
+    Returns:
+        HTML digest with bucket headers and styled posting details.
+    """
+    parts = [
+        '<div style="font-family:system-ui,sans-serif;max-width:680px">',
+        "<h2>Your job digest</h2>",
+    ]
     for bucket, rows in groups.items():
-        parts.append(f"<h3>{escape(BUCKET_LABEL.get(bucket, bucket))} "
-                     f"<span style='color:#888;font-weight:400'>({len(rows)})</span></h3>")
+        parts.append(
+            f"<h3>{escape(BUCKET_LABEL.get(bucket, bucket))} "
+            f"<span style='color:#888;font-weight:400'>({len(rows)})</span></h3>"
+        )
         for r in rows:
             lowball = r.get("comp_flag") == "lowball"
-            comp_tag = (" <span style='background:#fee;color:#c00;padding:1px 6px;"
-                        "border-radius:3px;font-size:12px'>LOWBALL</span>") if lowball else ""
+            comp_tag = (
+                (
+                    " <span style='background:#fee;color:#c00;padding:1px 6px;"
+                    "border-radius:3px;font-size:12px'>LOWBALL</span>"
+                )
+                if lowball
+                else ""
+            )
             note = escape(r.get("trajectory_note") or "")
             parts.append(
                 "<div style='margin:0 0 16px;padding:10px 14px;border-left:3px solid #4a7'>"
@@ -113,6 +160,19 @@ def _render_html(groups: dict[str, list[dict]]) -> str:
 
 
 def _send(subject: str, text: str, html: str) -> None:
+    """Send an email via SMTP.
+
+    Reads SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS from env. Uses
+    SMTP_SSL for port 465, STARTTLS otherwise. Raises on send failure.
+
+    Args:
+        subject: Email subject line.
+        text: Plain-text body.
+        html: HTML body (added as alternative).
+
+    Raises:
+        smtplib.SMTPException: On authentication or send failure.
+    """
     host = os.environ["SMTP_HOST"]
     port = int(os.environ["SMTP_PORT"])
     user = os.environ["SMTP_USER"]
@@ -138,6 +198,12 @@ def _send(subject: str, text: str, html: str) -> None:
 
 
 def _mark_sent(fingerprints: list[str], path: str | None = None) -> None:
+    """Mark postings as sent by setting digest_sent_at timestamp.
+
+    Args:
+        fingerprints: List of posting fingerprints.
+        path: Optional path to jobs.db; defaults to data_path("jobs.db").
+    """
     now = datetime.now(timezone.utc).isoformat()
     with store.connect(path) as conn:
         conn.executemany(

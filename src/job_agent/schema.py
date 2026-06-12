@@ -3,35 +3,35 @@
 Every adapter must return a list of Posting objects so the downstream
 storage and LLM-scoring stages never need to know which ATS a row came from.
 """
+
 from __future__ import annotations
 
 import hashlib
 import re
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
-from typing import Optional
 
 
-def _clean(text: Optional[str]) -> str:
+def _clean(text: str | None) -> str:
     """Strip HTML tags and collapse whitespace from a description blob."""
     if not text:
         return ""
-    text = re.sub(r"<[^>]+>", " ", text)          # drop HTML tags
-    text = re.sub(r"&[a-z]+;", " ", text)          # crude entity strip
+    text = re.sub(r"<[^>]+>", " ", text)  # drop HTML tags
+    text = re.sub(r"&[a-z]+;", " ", text)  # crude entity strip
     text = re.sub(r"\s+", " ", text)
     return text.strip()
 
 
 @dataclass
 class Posting:
-    source: str               # ats vendor, e.g. "greenhouse"
-    company: str              # company slug / display name
-    external_id: str          # the ATS's own id for this job
+    source: str  # ats vendor, e.g. "greenhouse"
+    company: str  # company slug / display name
+    external_id: str  # the ATS's own id for this job
     title: str
     location: str
     description: str
     url: str
-    posted_at: Optional[str]  # ISO 8601 string if the ATS gives one
+    posted_at: str | None  # ISO 8601 string if the ATS gives one
 
     @property
     def fingerprint(self) -> str:
@@ -58,7 +58,12 @@ class Posting:
         )
         return hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
 
-    def to_row(self) -> dict:
+    def to_row(self) -> dict[str, str]:
+        """Convert posting to a database row dict.
+
+        Returns a dictionary with all posting fields plus fingerprint and
+        fetched_at timestamp.
+        """
         d = asdict(self)
         d["fingerprint"] = self.fingerprint
         d["fetched_at"] = datetime.now(timezone.utc).isoformat()
@@ -74,9 +79,13 @@ def normalize(
     location: str,
     description: str,
     url: str,
-    posted_at: Optional[str] = None,
+    posted_at: str | None = None,
 ) -> Posting:
-    """Single choke point so adapters can't drift on field hygiene."""
+    """Normalize raw posting data into a canonical Posting object.
+
+    Single choke point so adapters can't drift on field hygiene. Strips
+    whitespace, validates/defaults location, and cleans description text.
+    """
     return Posting(
         source=source,
         company=company,

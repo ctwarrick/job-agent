@@ -31,6 +31,7 @@ injected reminders don't spam every tool call.
 Registered in .claude/settings.json under PostToolUse and UserPromptSubmit.
 Reads the hook payload on stdin; emits hookSpecificOutput.additionalContext.
 """
+
 from __future__ import annotations
 
 import json
@@ -153,9 +154,7 @@ def main() -> None:
         return
 
     # fire each band at most once per session
-    state_path = os.path.join(
-        tempfile.gettempdir(), f"claude-context-band-{session}"
-    )
+    state_path = os.path.join(tempfile.gettempdir(), f"claude-context-band-{session}")
     try:
         last = open(state_path, encoding="utf-8").read().strip()
     except OSError:
@@ -166,9 +165,7 @@ def main() -> None:
     with open(state_path, "w", encoding="utf-8") as f:
         f.write(band)
 
-    msg = MESSAGES[band].format(
-        pct=pct, used=used, budget=budget, model=model or "unknown"
-    )
+    msg = MESSAGES[band].format(pct=pct, used=used, budget=budget, model=model or "unknown")
     print(
         json.dumps(
             {

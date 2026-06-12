@@ -1,4 +1,5 @@
 import importlib
+from pathlib import Path
 
 import pytest
 
@@ -7,20 +8,20 @@ from job_agent.schema import normalize
 
 
 @pytest.fixture(autouse=True)
-def _reload_score_after():
+def _reload_score_after() -> None:
     """score.py reads MODEL/SALARY_FLOOR at import time; restore module
     state for other tests after each test in this file."""
     yield
     importlib.reload(score)
 
 
-def test_default_model_is_claude_sonnet_when_env_unset(monkeypatch):
+def test_default_model_is_claude_sonnet_when_env_unset(monkeypatch) -> None:
     monkeypatch.delenv("JOBAGENT_MODEL", raising=False)
     reloaded = importlib.reload(score)
     assert reloaded.MODEL == "claude-sonnet-4-6"
 
 
-def test_main_reads_runtime_files_from_data_dir(tmp_path, monkeypatch, capsys):
+def test_main_reads_runtime_files_from_data_dir(tmp_path: Path, monkeypatch, capsys) -> None:
     data_dir = tmp_path / "data"
     cwd_dir = tmp_path / "cwd"
     data_dir.mkdir()
@@ -50,9 +51,17 @@ def test_main_reads_runtime_files_from_data_dir(tmp_path, monkeypatch, capsys):
         captured["system"] = system
         captured["profile"] = profile
         captured["rows"] = rows
-        return [{"fingerprint": "abc123", "skills_fit": 8, "seniority_fit": 7,
-                  "category_risk": 2, "bucket": "engineering",
-                  "comp_flag": "ok", "trajectory_note": "note"}]
+        return [
+            {
+                "fingerprint": "abc123",
+                "skills_fit": 8,
+                "seniority_fit": 7,
+                "category_risk": 2,
+                "bucket": "engineering",
+                "comp_flag": "ok",
+                "trajectory_note": "note",
+            }
+        ]
 
     monkeypatch.setattr(reloaded, "_score_batch", fake_score_batch)
     monkeypatch.setattr(reloaded, "_write_scores", lambda scores: None)
@@ -71,7 +80,7 @@ def test_main_reads_runtime_files_from_data_dir(tmp_path, monkeypatch, capsys):
     assert captured["system"] == "stub screening prompt\n"
 
 
-def test_main_writes_scores_into_data_dir_db(tmp_path, monkeypatch):
+def test_main_writes_scores_into_data_dir_db(tmp_path: Path, monkeypatch) -> None:
     """score.main()'s write path (_write_scores) must persist into the
     jobs.db under JOBAGENT_DATA_DIR, not a hardcoded "jobs.db" relative to
     cwd."""
@@ -103,15 +112,17 @@ def test_main_writes_scores_into_data_dir_db(tmp_path, monkeypatch):
     reloaded = importlib.reload(score)
 
     def fake_score_batch(client, system, profile, rows):
-        return [{
-            "fingerprint": posting.fingerprint,
-            "skills_fit": 9,
-            "seniority_fit": 8,
-            "category_risk": 1,
-            "bucket": "engineering",
-            "comp_flag": "ok",
-            "trajectory_note": "good fit",
-        }]
+        return [
+            {
+                "fingerprint": posting.fingerprint,
+                "skills_fit": 9,
+                "seniority_fit": 8,
+                "category_risk": 1,
+                "bucket": "engineering",
+                "comp_flag": "ok",
+                "trajectory_note": "good fit",
+            }
+        ]
 
     monkeypatch.setattr(reloaded, "_score_batch", fake_score_batch)
 

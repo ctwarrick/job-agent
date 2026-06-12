@@ -12,9 +12,11 @@ specs/001-azure-deployment/contracts/runtime-config.md:
   - a fatal stage failure records run outcome 'failed' and exits non-zero
   - JOBAGENT_FORCE=1 bypasses skip_succeeded but not the in-flight lock
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
@@ -24,7 +26,7 @@ from job_agent import store
 DIGEST_DATE = "2026-06-11"
 
 
-def _setup_db(tmp_path, monkeypatch):
+def _setup_db(tmp_path: Path, monkeypatch) -> Path:
     db = tmp_path / "jobs.db"
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("JOBAGENT_DATA_DIR", raising=False)
@@ -34,20 +36,22 @@ def _setup_db(tmp_path, monkeypatch):
     return db
 
 
-def _patch_stages(monkeypatch, *, fetch_ok=True, score_ok=True, digest_returns=True):
+def _patch_stages(
+    monkeypatch, *, fetch_ok: bool = True, score_ok: bool = True, digest_returns: bool = True
+) -> list[str]:
     calls = []
 
-    def fake_fetch():
+    def fake_fetch() -> None:
         calls.append("fetch")
         if not fetch_ok:
             raise SystemExit("fetch failed")
 
-    def fake_score():
+    def fake_score() -> None:
         calls.append("score")
         if not score_ok:
             raise SystemExit("score failed")
 
-    def fake_digest():
+    def fake_digest() -> bool:
         calls.append("digest")
         return digest_returns
 
@@ -57,8 +61,9 @@ def _patch_stages(monkeypatch, *, fetch_ok=True, score_ok=True, digest_returns=T
     return calls
 
 
-def _run_main_allow_exit(monkeypatch):
-    """Run main.main(), returning the SystemExit code (or None if it returned)."""
+def _run_main_allow_exit(monkeypatch) -> str | int | None:
+    """Run main.main(), returning the SystemExit code (or None if it
+    returned)."""
     try:
         main.main()
     except SystemExit as e:
@@ -66,7 +71,9 @@ def _run_main_allow_exit(monkeypatch):
     return None
 
 
-def test_successful_run_prints_run_success_after_confirmed_send(tmp_path, monkeypatch, capsys):
+def test_successful_run_prints_run_success_after_confirmed_send(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
     db = _setup_db(tmp_path, monkeypatch)
     calls = _patch_stages(monkeypatch, digest_returns=True)
 
@@ -78,7 +85,7 @@ def test_successful_run_prints_run_success_after_confirmed_send(tmp_path, monkey
     assert f"RUN_SUCCESS digest_date={store.digest_date()}" in out
 
 
-def test_inflight_run_is_a_noop_skip_and_exits_zero(tmp_path, monkeypatch, capsys):
+def test_inflight_run_is_a_noop_skip_and_exits_zero(tmp_path: Path, monkeypatch, capsys) -> None:
     db = _setup_db(tmp_path, monkeypatch)
     calls = _patch_stages(monkeypatch)
 
@@ -96,7 +103,9 @@ def test_inflight_run_is_a_noop_skip_and_exits_zero(tmp_path, monkeypatch, capsy
     assert calls == []  # no stages run on a no-op skip
 
 
-def test_already_succeeded_date_is_noop_skip_and_prints_run_success(tmp_path, monkeypatch, capsys):
+def test_already_succeeded_date_is_noop_skip_and_prints_run_success(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
     db = _setup_db(tmp_path, monkeypatch)
     calls = _patch_stages(monkeypatch)
 
@@ -112,7 +121,9 @@ def test_already_succeeded_date_is_noop_skip_and_prints_run_success(tmp_path, mo
     assert f"RUN_SUCCESS digest_date={today}" in out
 
 
-def test_fatal_stage_failure_records_failed_outcome_and_exits_nonzero(tmp_path, monkeypatch, capsys):
+def test_fatal_stage_failure_records_failed_outcome_and_exits_nonzero(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
     db = _setup_db(tmp_path, monkeypatch)
     _patch_stages(monkeypatch, score_ok=False)
 
@@ -131,7 +142,9 @@ def test_fatal_stage_failure_records_failed_outcome_and_exits_nonzero(tmp_path, 
     assert f"RUN_SUCCESS digest_date={today}" not in out
 
 
-def test_fatal_failure_on_third_attempt_prints_run_failed_final(tmp_path, monkeypatch, capsys):
+def test_fatal_failure_on_third_attempt_prints_run_failed_final(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
     db = _setup_db(tmp_path, monkeypatch)
     _patch_stages(monkeypatch, score_ok=False)
 
@@ -149,7 +162,9 @@ def test_fatal_failure_on_third_attempt_prints_run_failed_final(tmp_path, monkey
     assert f"RUN_FAILED_FINAL digest_date={today}" in out
 
 
-def test_force_bypasses_already_succeeded_but_not_inflight(tmp_path, monkeypatch, capsys):
+def test_force_bypasses_already_succeeded_but_not_inflight(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
     db = _setup_db(tmp_path, monkeypatch)
 
     today = store.digest_date()
@@ -166,7 +181,7 @@ def test_force_bypasses_already_succeeded_but_not_inflight(tmp_path, monkeypatch
     assert calls == ["fetch", "score", "digest"], "force should bypass skip_succeeded"
 
 
-def test_force_does_not_bypass_inflight_lock(tmp_path, monkeypatch, capsys):
+def test_force_does_not_bypass_inflight_lock(tmp_path: Path, monkeypatch, capsys) -> None:
     db = _setup_db(tmp_path, monkeypatch)
     today = store.digest_date()
 
@@ -186,10 +201,11 @@ def test_force_does_not_bypass_inflight_lock(tmp_path, monkeypatch, capsys):
     assert calls == [], "in-flight lock is not bypassed by JOBAGENT_FORCE"
 
 
-def test_first_run_on_fresh_data_dir_does_not_crash(tmp_path, monkeypatch, capsys):
-    """A fresh JOBAGENT_DATA_DIR with no jobs.db must not crash main.main()
-    with 'no such table: runs' -- main must ensure schema init before the
-    startup check (store.startup_decision/store.start_run)."""
+def test_first_run_on_fresh_data_dir_does_not_crash(tmp_path: Path, monkeypatch, capsys) -> None:
+    """A fresh JOBAGENT_DATA_DIR with no jobs.db must not crash
+    main.main() with 'no such table: runs' -- main must ensure schema
+    init before the startup check (store.startup_decision/store.start_run).
+    """
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     monkeypatch.setenv("JOBAGENT_DATA_DIR", str(data_dir))
@@ -206,14 +222,17 @@ def test_first_run_on_fresh_data_dir_does_not_crash(tmp_path, monkeypatch, capsy
     assert f"RUN_SUCCESS digest_date={store.digest_date()}" in out
 
 
-def test_non_systemexit_stage_failure_records_failed_outcome(tmp_path, monkeypatch, capsys):
+def test_non_systemexit_stage_failure_records_failed_outcome(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
     """A non-SystemExit exception from a stage (e.g. RuntimeError) must
     propagate, but the run row for the digest_date should still be recorded
-    as 'failed' with a non-empty detail rather than left with NULL outcome."""
+    as 'failed' with a non-empty detail rather than left with NULL outcome.
+    """
     db = _setup_db(tmp_path, monkeypatch)
     today = store.digest_date()
 
-    def fake_fetch():
+    def fake_fetch() -> None:
         raise RuntimeError("boom")
 
     monkeypatch.setattr(main, "fetch", type("M", (), {"main": staticmethod(fake_fetch)}))
@@ -232,7 +251,9 @@ def test_non_systemexit_stage_failure_records_failed_outcome(tmp_path, monkeypat
     assert row["detail"]
 
 
-def test_non_systemexit_failure_on_third_attempt_prints_run_failed_final(tmp_path, monkeypatch, capsys):
+def test_non_systemexit_failure_on_third_attempt_prints_run_failed_final(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
     """When a non-SystemExit stage failure happens on the day's 3rd attempt,
     RUN_FAILED_FINAL must still be printed."""
     db = _setup_db(tmp_path, monkeypatch)
@@ -243,7 +264,7 @@ def test_non_systemexit_failure_on_third_attempt_prints_run_failed_final(tmp_pat
         run_id = store.start_run(today, str(db))
         store.finish_run(run_id, outcome="failed", failed_sources=None, detail="boom", path=str(db))
 
-    def fake_score():
+    def fake_score() -> None:
         raise RuntimeError("kaboom")
 
     monkeypatch.setattr(main, "fetch", type("M", (), {"main": staticmethod(lambda: None)}))
