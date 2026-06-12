@@ -67,7 +67,7 @@ def test_main_reads_runtime_files_from_data_dir(tmp_path: Path, monkeypatch, cap
                 "comp_flag": "ok",
                 "trajectory_note": "note",
             }
-        ]
+        ], _ZERO_USAGE
 
     monkeypatch.setattr(reloaded, "_score_batch", fake_score_batch)
     monkeypatch.setattr(reloaded, "_write_scores", lambda scores: None)
@@ -130,7 +130,7 @@ def test_main_writes_scores_into_data_dir_db(tmp_path: Path, monkeypatch) -> Non
                 "comp_flag": "ok",
                 "trajectory_note": "good fit",
             }
-        ]
+        ], _ZERO_USAGE
 
     monkeypatch.setattr(reloaded, "_score_batch", fake_score_batch)
 
@@ -153,6 +153,15 @@ def test_main_writes_scores_into_data_dir_db(tmp_path: Path, monkeypatch) -> Non
 
 
 # --- US1: filter-before-you-spend integration (feature 002) -----------------
+
+# US4: _score_batch now returns (scores, usage); stubs that don't model real
+# token accounting return this zero-usage dict alongside their scores.
+_ZERO_USAGE = {
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "cache_write_tokens": 0,
+    "cache_read_tokens": 0,
+}
 
 _FILTER_TOML = """
 [denylist]
@@ -246,7 +255,7 @@ def test_main_sends_only_plausible_postings_to_llm(tmp_path: Path, monkeypatch) 
                 "trajectory_note": "note",
             }
             for r in rows
-        ]
+        ], _ZERO_USAGE
 
     monkeypatch.setattr(reloaded, "_score_batch", fake_score_batch)
     monkeypatch.setattr(reloaded, "_write_scores", lambda scores: None)
@@ -303,7 +312,7 @@ def test_main_persists_filter_rejections_with_reasons(tmp_path: Path, monkeypatc
                 "trajectory_note": "note",
             }
             for r in rows
-        ]
+        ], _ZERO_USAGE
 
     monkeypatch.setattr(reloaded, "_score_batch", fake_score_batch)
     monkeypatch.setattr(reloaded, "_write_scores", lambda scores: None)
@@ -453,7 +462,7 @@ def test_main_posting_cap_trims_final_batch(tmp_path: Path, monkeypatch, capsys)
                 "trajectory_note": "note",
             }
             for r in batch
-        ]
+        ], _ZERO_USAGE
 
     monkeypatch.setattr(reloaded, "_score_batch", fake_score_batch)
     monkeypatch.setattr(reloaded, "_write_scores", lambda scores: None)
@@ -507,7 +516,7 @@ def test_main_posting_cap_second_run_resumes_remainder(tmp_path: Path, monkeypat
                 "trajectory_note": "note",
             }
             for r in batch
-        ]
+        ], _ZERO_USAGE
 
     monkeypatch.setattr(reloaded, "_score_batch", fake_score_batch)
     _stub_anthropic(reloaded, monkeypatch)
@@ -571,7 +580,7 @@ def test_main_cost_cap_stops_before_crossing_batch(tmp_path: Path, monkeypatch, 
                 "trajectory_note": "note",
             }
             for r in batch
-        ]
+        ], _ZERO_USAGE
 
     monkeypatch.setattr(reloaded, "_score_batch", fake_score_batch)
     monkeypatch.setattr(reloaded, "_write_scores", lambda scores: None)
@@ -615,7 +624,7 @@ def test_main_no_cap_stop_when_caps_not_reached(tmp_path: Path, monkeypatch, cap
                 "trajectory_note": "note",
             }
             for r in batch
-        ]
+        ], _ZERO_USAGE
 
     monkeypatch.setattr(reloaded, "_score_batch", fake_score_batch)
     monkeypatch.setattr(reloaded, "_write_scores", lambda scores: None)
@@ -877,3 +886,207 @@ def test_main_reuses_cache_across_batches(tmp_path: Path, monkeypatch) -> None:
 
     cache_read_total = sum(u.cache_read_input_tokens for u in client.usages)
     assert cache_read_total > 0
+
+
+# --- US4: per-run cost-observability summary (feature 002) -------------------
+
+
+def test_main_emits_score_summary_with_full_breakdown(tmp_path: Path, monkeypatch, capsys) -> None:
+    """SCORE_SUMMARY (FR-011/SC-005, Scenario 5): exactly one line reports
+    fetched/filtered/filtered_by_reason (all three keys, even when 0),
+    scored/remaining, the four summed token totals, and est_cost_usd --
+    with no posting title/fingerprint/rationale on the line (Principle VI).
+    """
+    _setup_score_env(tmp_path, monkeypatch)
+    reloaded = importlib.reload(score)
+
+    plausible_row = {
+        "fingerprint": "plausible-mix",
+        "title": "Software Engineer",
+        "company": "Acme",
+        "location": "Remote",
+        "description": "build things",
+        "posted_at": None,
+    }
+    denylisted_row = {
+        "fingerprint": "denylisted-mix",
+        "title": "Senior Sales Engineer",
+        "company": "Beta Corp",
+        "location": "Remote",
+        "description": "sell things",
+        "posted_at": None,
+    }
+    stale_row = {
+        "fingerprint": "stale-mix",
+        "title": "Software Engineer",
+        "company": "Gamma LLC",
+        "location": "Remote",
+        "description": "old posting",
+        # Clearly older than filter.toml's age.max_days = 30, relative to
+        # today (2026-06-12).
+        "posted_at": "2025-01-01",
+    }
+    out_of_region_row = {
+        "fingerprint": "out-of-region-mix",
+        "title": "Software Engineer",
+        "company": "Delta Inc",
+        # Not remote, not in regions ["WA","OR","PA"], not in
+        # metros ["Remote","Bay Area"] -> location:Austin, TX
+        "location": "Austin, TX",
+        "description": "onsite role",
+        "posted_at": None,
+    }
+
+    monkeypatch.setattr(
+        reloaded.store,
+        "scorable",
+        lambda *a, **k: [plausible_row, denylisted_row, stale_row, out_of_region_row],
+    )
+
+    recorded = {}
+
+    def fake_record_filter_rejections(rejections, *a, **k):
+        recorded["rejections"] = dict(rejections)
+
+    monkeypatch.setattr(reloaded.store, "record_filter_rejections", fake_record_filter_rejections)
+    monkeypatch.setattr(reloaded, "_write_scores", lambda scores: None)
+
+    client = _RecordingAnthropic()
+    monkeypatch.setattr(reloaded, "Anthropic", lambda *a, **k: client)
+
+    reloaded.main()
+
+    # Sanity: the deterministic classify() breakdown this seed produces.
+    rejections = recorded["rejections"]
+    assert rejections["denylisted-mix"] == "function_denylist:sales"
+    assert rejections["out-of-region-mix"] == "location:Austin, TX"
+    assert rejections["stale-mix"].startswith("age:")
+    assert "plausible-mix" not in rejections
+
+    out = capsys.readouterr().out
+    assert out.count("SCORE_SUMMARY ") == 1
+
+    summary_line = next(line for line in out.splitlines() if line.startswith("SCORE_SUMMARY "))
+
+    assert "fetched=4" in summary_line
+    assert "filtered=3" in summary_line
+    assert "filtered_by_reason=function_denylist:1,age:1,location:1" in summary_line
+    assert "scored=1" in summary_line
+    assert "remaining=0" in summary_line
+
+    # Single batch (1 plausible row) -> the _RecordingAnthropic call-0 usage.
+    usage = client.usages[0]
+    assert f"input_tokens={usage.input_tokens}" in summary_line
+    assert f"output_tokens={usage.output_tokens}" in summary_line
+    assert f"cache_write_tokens={usage.cache_creation_input_tokens}" in summary_line
+    assert f"cache_read_tokens={usage.cache_read_input_tokens}" in summary_line
+
+    expected_cost = reloaded._cost_usd(
+        usage.input_tokens,
+        usage.output_tokens,
+        usage.cache_creation_input_tokens,
+        usage.cache_read_input_tokens,
+    )
+    assert f"est_cost_usd={expected_cost:.2f}" in summary_line
+
+    # Principle VI: no posting content on the line.
+    for needle in (
+        "plausible-mix",
+        "denylisted-mix",
+        "stale-mix",
+        "out-of-region-mix",
+        "Software Engineer",
+        "Sales Engineer",
+        "Austin",
+        "trajectory",
+    ):
+        assert needle not in summary_line
+
+
+def test_main_score_summary_accumulates_tokens_across_batches(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """SCORE_SUMMARY's four token fields sum the per-call usage across every
+    batch in the run (multi-batch accumulation, FR-011)."""
+    monkeypatch.setenv("JOBAGENT_MAX_POSTINGS_PER_RUN", "1000")
+    monkeypatch.setenv("JOBAGENT_MAX_COST_PER_RUN", "1000")
+    _setup_score_env(tmp_path, monkeypatch)
+    reloaded = importlib.reload(score)
+
+    # BATCH=6: 7 rows -> 2 batches (6 + 1). _RecordingAnthropic reports
+    # cache_creation_input_tokens > 0 on call 0 and cache_read_input_tokens
+    # > 0 on call 1+.
+    rows = _plausible_rows(7)
+    monkeypatch.setattr(reloaded.store, "scorable", lambda *a, **k: rows)
+    monkeypatch.setattr(reloaded.store, "record_filter_rejections", lambda *a, **k: None)
+    monkeypatch.setattr(reloaded, "_write_scores", lambda scores: None)
+
+    client = _RecordingAnthropic()
+    monkeypatch.setattr(reloaded, "Anthropic", lambda *a, **k: client)
+
+    reloaded.main()
+
+    assert len(client.calls) == 2
+
+    expected_input = sum(u.input_tokens for u in client.usages)
+    expected_output = sum(u.output_tokens for u in client.usages)
+    expected_cache_write = sum(u.cache_creation_input_tokens for u in client.usages)
+    expected_cache_read = sum(u.cache_read_input_tokens for u in client.usages)
+    expected_cost = reloaded._cost_usd(
+        expected_input, expected_output, expected_cache_write, expected_cache_read
+    )
+
+    out = capsys.readouterr().out
+    assert out.count("SCORE_SUMMARY ") == 1
+    summary_line = next(line for line in out.splitlines() if line.startswith("SCORE_SUMMARY "))
+
+    assert f"input_tokens={expected_input}" in summary_line
+    assert f"output_tokens={expected_output}" in summary_line
+    assert f"cache_write_tokens={expected_cache_write}" in summary_line
+    assert f"cache_read_tokens={expected_cache_read}" in summary_line
+    assert f"est_cost_usd={expected_cost:.2f}" in summary_line
+    assert "scored=7" in summary_line
+    assert "remaining=0" in summary_line
+
+
+def test_main_score_summary_zero_llm_run(tmp_path: Path, monkeypatch, capsys) -> None:
+    """Scenario 6 (empty post-filter set): when every scorable row is
+    filter-rejected, messages.create is never called, exactly one
+    SCORE_SUMMARY line reports scored=0 / zero token totals /
+    est_cost_usd=0.00, and main() returns normally (no SystemExit)."""
+    _setup_score_env(tmp_path, monkeypatch)
+    reloaded = importlib.reload(score)
+
+    denylisted_row = {
+        "fingerprint": "denylisted-only",
+        "title": "Senior Sales Engineer",
+        "company": "Beta Corp",
+        "location": "Remote",
+        "description": "sell things",
+        "posted_at": None,
+    }
+    monkeypatch.setattr(reloaded.store, "scorable", lambda *a, **k: [denylisted_row])
+    monkeypatch.setattr(reloaded.store, "record_filter_rejections", lambda *a, **k: None)
+    monkeypatch.setattr(reloaded, "_write_scores", lambda scores: None)
+
+    client = _RecordingAnthropic()
+    monkeypatch.setattr(reloaded, "Anthropic", lambda *a, **k: client)
+
+    reloaded.main()
+
+    assert client.calls == []
+
+    out = capsys.readouterr().out
+    assert out.count("SCORE_SUMMARY ") == 1
+    summary_line = next(line for line in out.splitlines() if line.startswith("SCORE_SUMMARY "))
+
+    assert "fetched=1" in summary_line
+    assert "filtered=1" in summary_line
+    assert "filtered_by_reason=function_denylist:1,age:0,location:0" in summary_line
+    assert "scored=0" in summary_line
+    assert "remaining=0" in summary_line
+    assert "input_tokens=0" in summary_line
+    assert "output_tokens=0" in summary_line
+    assert "cache_write_tokens=0" in summary_line
+    assert "cache_read_tokens=0" in summary_line
+    assert "est_cost_usd=0.00" in summary_line

@@ -127,7 +127,9 @@ def _format_postings(rows: list[dict]) -> str:
     return "\n\n".join(blocks)
 
 
-def _score_batch(client: Anthropic, system: str, profile: str, rows: list[dict]) -> list[dict]:
+def _score_batch(
+    client: Anthropic, system: str, profile: str, rows: list[dict]
+) -> tuple[list[dict], dict]:
     """Score a batch of postings using the Anthropic API.
 
     Builds a single static system prefix from the screening prompt, the
@@ -145,9 +147,11 @@ def _score_batch(client: Anthropic, system: str, profile: str, rows: list[dict])
             company, location, description.
 
     Returns:
-        List of dicts, each with at least fingerprint and score fields
-        (skills_fit, seniority_fit, category_risk, bucket, comp_flag,
-        trajectory_note).
+        Tuple of (scores, usage). scores is a list of dicts, each with at
+        least fingerprint and score fields (skills_fit, seniority_fit,
+        category_risk, bucket, comp_flag, trajectory_note). usage is a dict
+        with the four token-accounting fields (FR-011): input_tokens,
+        output_tokens, cache_write_tokens, cache_read_tokens.
     """
     system_prefix = SYSTEM_PREFIX_TEMPLATE.format(
         screening=system,
@@ -165,7 +169,13 @@ def _score_batch(client: Anthropic, system: str, profile: str, rows: list[dict])
     # be tolerant of accidental fences
     if text.startswith("```"):
         text = text.split("```", 2)[1].lstrip("json").strip()
-    return json.loads(text)
+    usage = {
+        "input_tokens": getattr(resp.usage, "input_tokens", 0) or 0,
+        "output_tokens": getattr(resp.usage, "output_tokens", 0) or 0,
+        "cache_write_tokens": getattr(resp.usage, "cache_creation_input_tokens", 0) or 0,
+        "cache_read_tokens": getattr(resp.usage, "cache_read_input_tokens", 0) or 0,
+    }
+    return json.loads(text), usage
 
 
 def _write_scores(scores: list[dict], path: str | None = None) -> None:
@@ -258,6 +268,49 @@ def _cost_usd(
     ) / 1e6
 
 
+def _format_score_summary(
+    fetched: int,
+    filtered: int,
+    by_reason: dict[str, int],
+    scored: int,
+    remaining: int,
+    totals: dict[str, int],
+) -> str:
+    """Format the once-per-run SCORE_SUMMARY line (FR-011).
+
+    Args:
+        fetched: Number of scorable rows read at the start of the run.
+        filtered: Number of those rows rejected by the deterministic filter.
+        by_reason: Counts keyed by "function_denylist", "age", "location".
+        scored: Number of postings successfully scored this run.
+        remaining: Plausible postings left unscored (e.g. due to a cap).
+        totals: Summed token usage with keys "input_tokens",
+            "output_tokens", "cache_write_tokens", "cache_read_tokens".
+
+    Returns:
+        The formatted SCORE_SUMMARY line, with no posting content
+        (Principle VI).
+    """
+    reason_str = (
+        f"function_denylist:{by_reason['function_denylist']},"
+        f"age:{by_reason['age']},"
+        f"location:{by_reason['location']}"
+    )
+    cost = _cost_usd(
+        totals["input_tokens"],
+        totals["output_tokens"],
+        totals["cache_write_tokens"],
+        totals["cache_read_tokens"],
+    )
+    return (
+        f"SCORE_SUMMARY fetched={fetched} filtered={filtered} "
+        f"filtered_by_reason={reason_str} scored={scored} remaining={remaining} "
+        f"input_tokens={totals['input_tokens']} output_tokens={totals['output_tokens']} "
+        f"cache_write_tokens={totals['cache_write_tokens']} "
+        f"cache_read_tokens={totals['cache_read_tokens']} est_cost_usd={cost:.2f}"
+    )
+
+
 def main() -> None:
     if not os.environ.get("ANTHROPIC_API_KEY"):
         sys.exit("ANTHROPIC_API_KEY not set")
@@ -305,6 +358,7 @@ def main() -> None:
             sys.exit(f"{env_var} invalid: {raw!r} (must be >= 0)")
 
     rows = store.scorable()
+    fetched = len(rows)
 
     plausible = []
     rejects = []
@@ -316,52 +370,68 @@ def main() -> None:
             rejects.append((row["fingerprint"], reason))
     store.record_filter_rejections(rejects)
 
-    if not plausible:
-        print("Nothing to score.")
-        return
+    filtered = len(rejects)
+    by_reason = {"function_denylist": 0, "age": 0, "location": 0}
+    for _, reason in rejects:
+        key = reason.split(":", 1)[0]
+        if key in by_reason:
+            by_reason[key] += 1
 
-    system = Path(store.data_path("screening_prompt.md")).read_text()
-    profile = Path(store.data_path("profile.md")).read_text()
-    client = Anthropic()
-
-    print(f"Scoring {len(plausible)} postings in batches of {BATCH}...")
-
+    totals = {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cache_write_tokens": 0,
+        "cache_read_tokens": 0,
+    }
     scored = 0
-    projected_spend = 0.0
-    for i in range(0, len(plausible), BATCH):
-        batch = plausible[i : i + BATCH]
 
-        room = max_postings - scored
-        if len(batch) > room:
-            batch = batch[:room]
+    if plausible:
+        system = Path(store.data_path("screening_prompt.md")).read_text()
+        profile = Path(store.data_path("profile.md")).read_text()
+        client = Anthropic()
 
-        batch_cost = _projected_batch_cost(len(batch))
-        if projected_spend + batch_cost > max_cost:
-            remaining = len(plausible) - scored
-            print(
-                f"SCORE_CAP_STOP reason=cost scored={scored} "
-                f"remaining={remaining} limit={cost_limit}"
-            )
-            break
+        print(f"Scoring {len(plausible)} postings in batches of {BATCH}...")
 
-        try:
-            scores = _score_batch(client, system, profile, batch)
-            _write_scores(scores)
-            scored += len(batch)
-            projected_spend += batch_cost
-            print(f"  scored {scored}/{len(plausible)}")
-        except Exception as e:
-            print(f"  ! batch {i}-{i+len(batch)} failed: {e}", file=sys.stderr)
+        projected_spend = 0.0
+        for i in range(0, len(plausible), BATCH):
+            batch = plausible[i : i + BATCH]
 
-        if scored >= max_postings:
-            remaining = len(plausible) - scored
-            print(
-                f"SCORE_CAP_STOP reason=postings scored={scored} "
-                f"remaining={remaining} limit={max_postings}"
-            )
-            break
+            room = max_postings - scored
+            if len(batch) > room:
+                batch = batch[:room]
 
-    print("Done.")
+            batch_cost = _projected_batch_cost(len(batch))
+            if projected_spend + batch_cost > max_cost:
+                remaining = len(plausible) - scored
+                print(
+                    f"SCORE_CAP_STOP reason=cost scored={scored} "
+                    f"remaining={remaining} limit={cost_limit}"
+                )
+                break
+
+            try:
+                scores, usage = _score_batch(client, system, profile, batch)
+                _write_scores(scores)
+                scored += len(batch)
+                projected_spend += batch_cost
+                for key in totals:
+                    totals[key] += usage[key]
+                print(f"  scored {scored}/{len(plausible)}")
+            except Exception as e:
+                print(f"  ! batch {i}-{i+len(batch)} failed: {e}", file=sys.stderr)
+
+            if scored >= max_postings:
+                remaining = len(plausible) - scored
+                print(
+                    f"SCORE_CAP_STOP reason=postings scored={scored} "
+                    f"remaining={remaining} limit={max_postings}"
+                )
+                break
+
+        print("Done.")
+
+    remaining = len(plausible) - scored
+    print(_format_score_summary(fetched, filtered, by_reason, scored, remaining, totals))
 
 
 if __name__ == "__main__":
