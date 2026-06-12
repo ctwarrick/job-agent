@@ -53,8 +53,8 @@ provisioning (contract: runtime-config.md → log-marker contract).
   still arrives (FR-003 / SC-007).
 - No duplicates: confirm a posting from yesterday's digest is absent from today's.
 - Logs show `RUN_SUCCESS digest_date=<today>`:
-  `az containerapp job logs show -n <job> -g <rg>` or LAW query on
-  `ContainerAppConsoleLogs_CL`.
+  `az containerapp job logs show -n <job> -g <rg> --container job-agent` or LAW
+  query on `ContainerAppConsoleLogs_CL`.
 
 ### US2 — Push to main ships to production
 

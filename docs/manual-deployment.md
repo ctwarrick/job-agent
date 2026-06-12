@@ -159,10 +159,14 @@ Then:
 - Check logs for `RUN_SUCCESS digest_date=<today>`:
 
   ```bash
-  az containerapp job logs show -n "$JOB" -g "$RG"
+  az containerapp job logs show -n "$JOB" -g "$RG" --container job-agent
   ```
 
-  or query `ContainerAppConsoleLogs_CL` in the Log Analytics workspace.
+  `--container job-agent` is required — it names the container in the job's
+  template (the `job-agent` container declared in `infra/main.bicep`), not the
+  job. Alternatively, query `ContainerAppConsoleLogs_CL` in the Log Analytics
+  workspace. (Log Analytics ingests with a few-minutes lag, so logs may be
+  briefly empty right after a run.)
 
 If this run fails, diagnose from the logs (per-source fetch failures, the
 failing stage, and the exception are all logged per
