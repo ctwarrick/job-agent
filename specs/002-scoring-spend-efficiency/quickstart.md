@@ -62,8 +62,9 @@ temp `jobs.db` seeded via `store.upsert_postings`.
   not rounded up to a whole `BATCH` — spec edge case), 15 remain scorable.
 - `SCORE_CAP_STOP reason=postings …` and `SCORE_SUMMARY … remaining=15 …` logged.
 - Process returns normally (exit 0) — a cap stop is not a failure.
-- A **second** run scores the remaining 15 (resume; no re-scoring of the first
-  10) — FR-007.
+- Subsequent runs **resume** the remaining backlog at the same per-run cap (a
+  second run scores the next 10, leaving 5; a third drains them), re-scoring
+  none of the already-scored rows — FR-007.
 
 ## Scenario 3 — Per-run budget cap, dollar cap (US2 · FR-005 · SC-002)
 

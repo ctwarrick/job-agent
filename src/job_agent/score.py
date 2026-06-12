@@ -19,9 +19,17 @@ The screening instructions (the system prompt) live in screening_prompt.md so
 they can be tuned without code changes, alongside profile.md.
 
 Env:
-  ANTHROPIC_API_KEY      required
-  JOBAGENT_SALARY_FLOOR  required, base salary floor in dollars (e.g. 120000)
-  JOBAGENT_MODEL         optional, defaults below
+  ANTHROPIC_API_KEY            required
+  JOBAGENT_SALARY_FLOOR        required, base salary floor in dollars (e.g. 120000)
+  JOBAGENT_MODEL                optional, defaults below
+  JOBAGENT_MAX_POSTINGS_PER_RUN optional, hard cap on postings scored per run
+                                 (default 200)
+  JOBAGENT_MAX_COST_PER_RUN      optional, hard cap on estimated dollars per
+                                 run (default 5.00)
+  JOBAGENT_PRICE_INPUT           optional, $/MTok uncached input (default 3.00)
+  JOBAGENT_PRICE_OUTPUT          optional, $/MTok output (default 15.00)
+  JOBAGENT_PRICE_CACHE_WRITE     optional, $/MTok cache-creation (default 3.75)
+  JOBAGENT_PRICE_CACHE_READ      optional, $/MTok cache-read (default 0.30)
 """
 
 from __future__ import annotations
@@ -41,6 +49,24 @@ BATCH = 6  # postings per API call
 DESC_CHARS = 3500  # truncate each JD to control token cost
 _floor = os.environ.get("JOBAGENT_SALARY_FLOOR")
 SALARY_FLOOR = int(_floor) if _floor else None  # keep in sync with profile.md
+
+# Rough per-posting token estimates used only for the pre-call cost
+# projection (cap check). These are not billing truth -- they are a
+# conservative ballpark for one posting's share of a batch prompt plus
+# its share of the response.
+EST_INPUT_TOKENS_PER_POSTING = 1200
+EST_OUTPUT_TOKENS_PER_POSTING = 200
+
+# Default per-MTok prices (USD), matching documented claude-sonnet-4-6
+# list pricing. Overridable via env; see module docstring.
+DEFAULT_PRICE_INPUT = 3.00
+DEFAULT_PRICE_OUTPUT = 15.00
+DEFAULT_PRICE_CACHE_WRITE = 3.75
+DEFAULT_PRICE_CACHE_READ = 0.30
+
+# Default per-run guardrails (FR-005/FR-008): the run is never unbounded.
+DEFAULT_MAX_POSTINGS_PER_RUN = 200
+DEFAULT_MAX_COST_PER_RUN = 5.00
 
 PROMPT_TEMPLATE = """## CANDIDATE PROFILE
 {profile}
@@ -163,6 +189,62 @@ def _write_scores(scores: list[dict], path: str | None = None) -> None:
             )
 
 
+def _projected_batch_cost(n_postings: int) -> float:
+    """Project the dollar cost of scoring a batch before issuing it.
+
+    Uses rough per-posting token estimates (EST_INPUT_TOKENS_PER_POSTING,
+    EST_OUTPUT_TOKENS_PER_POSTING) and the configured per-MTok prices read
+    from JOBAGENT_PRICE_INPUT / JOBAGENT_PRICE_OUTPUT. This is a rough
+    projection, not billing truth, and conservatively ignores prompt-cache
+    savings (US3 not yet wired up), so it tends to over-estimate rather
+    than under-estimate.
+
+    Args:
+        n_postings: Number of postings in the prospective batch.
+
+    Returns:
+        Estimated dollar cost of scoring n_postings postings.
+    """
+    price_input = float(os.environ.get("JOBAGENT_PRICE_INPUT", DEFAULT_PRICE_INPUT))
+    price_output = float(os.environ.get("JOBAGENT_PRICE_OUTPUT", DEFAULT_PRICE_OUTPUT))
+    input_tokens = n_postings * EST_INPUT_TOKENS_PER_POSTING
+    output_tokens = n_postings * EST_OUTPUT_TOKENS_PER_POSTING
+    return (input_tokens * price_input + output_tokens * price_output) / 1e6
+
+
+def _cost_usd(
+    input_tokens: int, output_tokens: int, cache_write_tokens: int, cache_read_tokens: int
+) -> float:
+    """Compute the estimated dollar cost of an API call's token usage.
+
+    Args:
+        input_tokens: Uncached input tokens.
+        output_tokens: Output tokens.
+        cache_write_tokens: Cache-creation input tokens.
+        cache_read_tokens: Cache-read input tokens.
+
+    Returns:
+        Estimated dollar cost from the four usage components and the
+        configured per-MTok prices (JOBAGENT_PRICE_INPUT,
+        JOBAGENT_PRICE_OUTPUT, JOBAGENT_PRICE_CACHE_WRITE,
+        JOBAGENT_PRICE_CACHE_READ).
+    """
+    price_input = float(os.environ.get("JOBAGENT_PRICE_INPUT", DEFAULT_PRICE_INPUT))
+    price_output = float(os.environ.get("JOBAGENT_PRICE_OUTPUT", DEFAULT_PRICE_OUTPUT))
+    price_cache_write = float(
+        os.environ.get("JOBAGENT_PRICE_CACHE_WRITE", DEFAULT_PRICE_CACHE_WRITE)
+    )
+    price_cache_read = float(
+        os.environ.get("JOBAGENT_PRICE_CACHE_READ", DEFAULT_PRICE_CACHE_READ)
+    )
+    return (
+        input_tokens * price_input
+        + output_tokens * price_output
+        + cache_write_tokens * price_cache_write
+        + cache_read_tokens * price_cache_read
+    ) / 1e6
+
+
 def main() -> None:
     if not os.environ.get("ANTHROPIC_API_KEY"):
         sys.exit("ANTHROPIC_API_KEY not set")
@@ -172,6 +254,42 @@ def main() -> None:
         criteria = jobfilter.load_criteria()
     except Exception as e:
         sys.exit(f"filter.toml invalid or missing: {e}")
+
+    max_postings_raw = os.environ.get("JOBAGENT_MAX_POSTINGS_PER_RUN")
+    try:
+        max_postings = (
+            int(max_postings_raw) if max_postings_raw is not None else DEFAULT_MAX_POSTINGS_PER_RUN
+        )
+    except ValueError:
+        max_postings = -1
+    if max_postings <= 0:
+        sys.exit(f"JOBAGENT_MAX_POSTINGS_PER_RUN invalid: {max_postings_raw!r} (must be > 0)")
+
+    max_cost_raw = os.environ.get("JOBAGENT_MAX_COST_PER_RUN")
+    try:
+        max_cost = float(max_cost_raw) if max_cost_raw is not None else DEFAULT_MAX_COST_PER_RUN
+    except ValueError:
+        max_cost = -1.0
+    if max_cost <= 0:
+        sys.exit(f"JOBAGENT_MAX_COST_PER_RUN invalid: {max_cost_raw!r} (must be > 0)")
+    # Display the configured value verbatim in SCORE_CAP_STOP when set.
+    cost_limit = max_cost_raw if max_cost_raw is not None else max_cost
+
+    for env_var in (
+        "JOBAGENT_PRICE_INPUT",
+        "JOBAGENT_PRICE_OUTPUT",
+        "JOBAGENT_PRICE_CACHE_WRITE",
+        "JOBAGENT_PRICE_CACHE_READ",
+    ):
+        raw = os.environ.get(env_var)
+        if raw is None:
+            continue
+        try:
+            value = float(raw)
+        except ValueError:
+            value = -1.0
+        if value < 0:
+            sys.exit(f"{env_var} invalid: {raw!r} (must be >= 0)")
 
     rows = store.scorable()
 
@@ -195,14 +313,41 @@ def main() -> None:
 
     print(f"Scoring {len(plausible)} postings in batches of {BATCH}...")
 
+    scored = 0
+    projected_spend = 0.0
     for i in range(0, len(plausible), BATCH):
         batch = plausible[i : i + BATCH]
+
+        room = max_postings - scored
+        if len(batch) > room:
+            batch = batch[:room]
+
+        batch_cost = _projected_batch_cost(len(batch))
+        if projected_spend + batch_cost > max_cost:
+            remaining = len(plausible) - scored
+            print(
+                f"SCORE_CAP_STOP reason=cost scored={scored} "
+                f"remaining={remaining} limit={cost_limit}"
+            )
+            break
+
         try:
             scores = _score_batch(client, system, profile, batch)
             _write_scores(scores)
-            print(f"  scored {i + len(batch)}/{len(plausible)}")
+            scored += len(batch)
+            projected_spend += batch_cost
+            print(f"  scored {scored}/{len(plausible)}")
         except Exception as e:
             print(f"  ! batch {i}-{i+len(batch)} failed: {e}", file=sys.stderr)
+
+        if scored >= max_postings:
+            remaining = len(plausible) - scored
+            print(
+                f"SCORE_CAP_STOP reason=postings scored={scored} "
+                f"remaining={remaining} limit={max_postings}"
+            )
+            break
+
     print("Done.")
 
 
