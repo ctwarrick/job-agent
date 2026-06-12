@@ -16,6 +16,7 @@ import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 from .schema import Posting
@@ -84,6 +85,30 @@ def data_path(name: str) -> str:
     return os.path.join(data_dir, name)
 
 
+def _connect_args(path: str) -> tuple[str, bool]:
+    """Build the (connect_string, uri_flag) pair for `sqlite3.connect`.
+
+    Real filesystem paths are opened in URI mode with `nolock=1`, which
+    disables SQLite's OS-level file locking. That locking relies on POSIX
+    byte-range locks the Azure Files SMB mount doesn't support, so a plain
+    `connect(path)` raises "database is locked" on first use. `:memory:` and
+    paths already in `file:` URI form are passed through unchanged.
+
+    Args:
+        path: The resolved database path (e.g. "jobs.db", "/data/jobs.db",
+            ":memory:", or an existing "file:..." URI).
+
+    Returns:
+        A tuple of the string to pass to `sqlite3.connect` and whether
+        `uri=True` should be used.
+    """
+    if path == ":memory:":
+        return path, False
+    if path.startswith("file:"):
+        return path, True
+    return f"file:{quote(path)}?nolock=1", True
+
+
 @contextmanager
 def connect(path: str | None = None):
     """Context manager for database connections with auto-commit on success.
@@ -91,7 +116,8 @@ def connect(path: str | None = None):
     Returns a sqlite3.Connection with Row factory enabled. Commits on exit
     unless an exception occurs; always closes the connection.
     """
-    conn = sqlite3.connect(path or data_path("jobs.db"))
+    connect_string, uri = _connect_args(path or data_path("jobs.db"))
+    conn = sqlite3.connect(connect_string, uri=uri)
     conn.row_factory = sqlite3.Row
     try:
         yield conn

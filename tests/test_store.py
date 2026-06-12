@@ -1,4 +1,5 @@
 import hashlib
+import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -19,6 +20,94 @@ def _posting(**overrides: str | int) -> Posting:
     )
     fields.update(overrides)
     return normalize(**fields)
+
+
+def _spy_connect(monkeypatch, calls: list[tuple]) -> None:
+    """Patch store.sqlite3.connect to record call args and still connect.
+
+    Each call's positional/keyword arguments are appended to `calls` as a
+    `(args, kwargs)` tuple, and the call is delegated to the real
+    `sqlite3.connect` so `with store.connect(...)` still yields a working
+    connection.
+
+    Args:
+        monkeypatch: pytest monkeypatch fixture.
+        calls: List to append `(args, kwargs)` tuples to.
+    """
+    real_connect = sqlite3.connect
+
+    def spy(*args, **kwargs):
+        calls.append((args, kwargs))
+        return real_connect(*args, **kwargs)
+
+    monkeypatch.setattr(store.sqlite3, "connect", spy)
+
+
+# --- connect() URI/nolock behavior (Azure Files SMB fix) --------------------
+
+
+def test_connect_normal_path_uses_nolock_uri(tmp_path: Path, monkeypatch) -> None:
+    calls: list[tuple] = []
+    _spy_connect(monkeypatch, calls)
+
+    db = str(tmp_path / "jobs.db")
+    with store.connect(db) as conn:
+        conn.execute("SELECT 1")
+
+    assert len(calls) == 1
+    args, kwargs = calls[0]
+    assert args[0] == f"file:{db}?nolock=1"
+    assert kwargs.get("uri") is True
+
+
+def test_connect_memory_path_passes_through_unchanged(monkeypatch) -> None:
+    calls: list[tuple] = []
+    _spy_connect(monkeypatch, calls)
+
+    with store.connect(":memory:") as conn:
+        conn.execute("SELECT 1")
+
+    assert len(calls) == 1
+    args, kwargs = calls[0]
+    assert args[0] == ":memory:"
+    assert kwargs.get("uri", False) is False
+
+
+def test_connect_path_with_space_is_percent_encoded_and_round_trips(
+    tmp_path: Path, monkeypatch
+) -> None:
+    calls: list[tuple] = []
+    _spy_connect(monkeypatch, calls)
+
+    dir_with_space = tmp_path / "a b"
+    dir_with_space.mkdir(parents=True)
+    db = str(dir_with_space / "jobs.db")
+
+    store.init(db)
+    posting = _posting()
+    store.upsert_postings([posting], db)
+
+    rows = store.unscored(db)
+    assert len(rows) == 1
+    assert rows[0]["fingerprint"] == posting.fingerprint
+
+    connect_call = calls[0]
+    args, kwargs = connect_call
+    assert args[0].startswith("file:")
+    assert kwargs.get("uri") is True
+    assert " " not in args[0]
+
+
+def test_init_and_round_trip_on_plain_tmp_path_db(tmp_path: Path) -> None:
+    db = str(tmp_path / "jobs.db")
+    store.init(db)
+    posting = _posting()
+
+    store.upsert_postings([posting], db)
+
+    rows = store.unscored(db)
+    assert len(rows) == 1
+    assert rows[0]["fingerprint"] == posting.fingerprint
 
 
 def test_init_creates_tables(tmp_path: Path) -> None:
