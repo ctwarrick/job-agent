@@ -1,6 +1,6 @@
 [project]
 name = "job-agent"
-version = "0.1.0"
+version = "0.1.1"
 description = "Pulls postings from company ATS boards, scores them against your profile with Claude, and emails a triaged digest."
 readme = "README.md"
 license = "MIT"

@@ -22,7 +22,9 @@ Sonnet — the work is well-scoped by the plan and the failing tests.
    fail-loud `sys.exit` on missing config. Follow the Python style standard
    (Black @ 100, Google-style docstrings, full type hints) — style
    conformance is part of green, not a later sweep.
-3. Run `uv run pytest` until the whole suite is green.
+3. Run `uv run pytest` until the whole suite is green, then run `uv run
+   black --line-length 100` on the files you changed. Both must be clean
+   before you report green — style is part of green, not a later sweep.
 4. For deliverables pytest can't exercise (Bicep, shell, docs), compiling
    or linting is not validation: cross-check the artifact against the
    runtime contract — every env var the code requires (grep its

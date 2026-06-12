@@ -6,6 +6,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it reaches 1.0.0. Before 1.0.0, minor versions may include breaking changes.
 
+## [0.1.1] - 2026-06-12
+
+### Added
+
+- Deterministic pre-LLM relevance filter (`src/job_agent/filter.py`): a
+  function-title denylist (hard reject), an advisory allowlist, a
+  posting-age gate, and a region/metro location gate drop obviously
+  irrelevant postings before any LLM call. Rejections persist with a
+  machine-readable `filter_reason` and are never re-scored. Configured by a
+  new required runtime file, `filter.toml` (git-ignored, personal); a
+  generic `filter.toml.example` is committed as the template. The score
+  stage fails loud (`sys.exit`) if `filter.toml` is missing or malformed.
+- Per-run budget guardrails for the score stage: `JOBAGENT_MAX_POSTINGS_PER_RUN`
+  (default 200) and `JOBAGENT_MAX_COST_PER_RUN` (default 5.00 USD estimated).
+  The run stops cleanly at whichever cap is hit first, logs
+  `SCORE_CAP_STOP`, exits 0, and the next run resumes the remainder.
+- Prompt caching: the screening prompt, candidate profile, salary-floor
+  rule, and output-format instructions are now sent as a single cached
+  ephemeral `system` block, so the static prefix is billed once per run
+  instead of once per batch.
+- Cost observability: one `SCORE_SUMMARY` log line per run reports the
+  fetched/filtered/scored/remaining counts, a per-reason filter breakdown,
+  the four token-usage totals (input, output, cache-write, cache-read), and
+  `est_cost_usd`. New per-MTok price env vars `JOBAGENT_PRICE_INPUT`,
+  `JOBAGENT_PRICE_OUTPUT`, `JOBAGENT_PRICE_CACHE_WRITE`, and
+  `JOBAGENT_PRICE_CACHE_READ` (defaults: 3 / 15 / 3.75 / 0.30, the
+  `claude-sonnet-4-6` rates) feed both the cost cap and the estimate.
+- `store.py`: new `filter_reason` column on `postings` (idempotent
+  migration for existing databases), plus `scorable()` and
+  `record_filter_rejections()` helpers.
+- `infra/main.bicep` / `infra/main.bicepparam`: declare the new per-run cap
+  and per-MTok price env vars for the Container Apps Job.
+
+### Removed
+
+- The superseded, never-implemented `JOBAGENT_MAX_LLM_CALLS` env var.
+
 ## [0.1.0] - 2026-06-11
 
 ### Added
