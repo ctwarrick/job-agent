@@ -18,8 +18,9 @@ ADAPTERS = {
 }
 
 
-def load_registry(path: str = "registry.txt") -> list[tuple[str, str]]:
+def load_registry(path: str | None = None) -> list[tuple[str, str]]:
     entries = []
+    path = path or store.data_path("registry.txt")
     for line in Path(path).read_text().splitlines():
         line = line.split("#", 1)[0].strip()
         if not line:

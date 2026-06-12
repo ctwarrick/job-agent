@@ -1,0 +1,24 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": {
+      "value": "westus2"
+    },
+    "namePrefix": {
+      "value": "jobagent"
+    },
+    "cronExpression": {
+      "value": "0,20,40 11 * * *"
+    },
+    "tz": {
+      "value": "America/Los_Angeles"
+    },
+    "maxLlmCalls": {
+      "value": 10
+    },
+    "retentionDays": {
+      "value": 60
+    }
+  }
+}

@@ -1,0 +1,27 @@
+# Personal/runtime data (Constitution VI, FR-021): never bake these into the
+# public image — they're injected at runtime via the Azure Files mount.
+profile.md
+screening_prompt.md
+registry.txt
+jobs.db
+*.db
+
+# Local env files (may hold secrets during development).
+.env
+.env.*
+
+# VCS, virtualenv, and bytecode noise.
+.git
+.venv
+__pycache__
+*.pyc
+
+# Non-runtime project content with no place in the image.
+tests/
+specs/
+docs/
+agents/
+.github/
+.claude/
+.specify/
+*.log

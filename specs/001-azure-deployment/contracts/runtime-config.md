@@ -18,7 +18,7 @@ coordinated updates (see [deployment.md](deployment.md)).
 | `SMTP_PASS` | existing | yes (Key Vault) | — | digest delivery |
 | `DIGEST_TO` | existing | yes (Key Vault) | — | recipient address |
 | `JOBAGENT_MODEL` | existing | yes (plain env) | `claude-sonnet-4-6` (bumped from retiring `claude-opus-4-20250514`) | scoring model; cost dial |
-| `JOBAGENT_SALARY_FLOOR` | existing | optional | — | scoring tuning |
+| `JOBAGENT_SALARY_FLOOR` | existing | yes (Key Vault, secret name `salary-floor`) | — | scoring tuning; score stage `sys.exit`s without it |
 | `JOBAGENT_DATA_DIR` | **new** | yes (plain env, = share mount path) | `.` | path prefix for `jobs.db` + runtime files; default keeps local dev unchanged |
 | `JOBAGENT_TZ` | **new** | yes (plain env) | `America/Los_Angeles` | digest-date computation (stdlib `zoneinfo`); FR-002 timezone configurability |
 | `JOBAGENT_MAX_LLM_CALLS` | **new** | yes (plain env) | sensible cap (set in Bicep param) | per-run upper bound on scoring batches (FR-013) |

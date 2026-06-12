@@ -32,7 +32,7 @@ from anthropic import Anthropic
 
 from . import store
 
-MODEL = os.environ.get("JOBAGENT_MODEL", "claude-opus-4-20250514")
+MODEL = os.environ.get("JOBAGENT_MODEL", "claude-sonnet-4-6")
 BATCH = 6  # postings per API call
 DESC_CHARS = 3500  # truncate each JD to control token cost
 _floor = os.environ.get("JOBAGENT_SALARY_FLOOR")
@@ -96,7 +96,7 @@ def _score_batch(client, system, profile, rows) -> list[dict]:
     return json.loads(text)
 
 
-def _write_scores(scores: list[dict], path: str = "jobs.db") -> None:
+def _write_scores(scores: list[dict], path: str | None = None) -> None:
     with store.connect(path) as conn:
         for s in scores:
             conn.execute(
@@ -123,14 +123,15 @@ def main() -> None:
         sys.exit("ANTHROPIC_API_KEY not set")
     if not SALARY_FLOOR:
         sys.exit("JOBAGENT_SALARY_FLOOR not set (base salary floor in dollars, e.g. 120000)")
-    system = Path("screening_prompt.md").read_text()
-    profile = Path("profile.md").read_text()
-    client = Anthropic()
-
     rows = store.unscored()
     if not rows:
         print("Nothing to score.")
         return
+
+    system = Path(store.data_path("screening_prompt.md")).read_text()
+    profile = Path(store.data_path("profile.md")).read_text()
+    client = Anthropic()
+
     print(f"Scoring {len(rows)} postings in batches of {BATCH}...")
 
     for i in range(0, len(rows), BATCH):

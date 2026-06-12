@@ -37,10 +37,25 @@ class Posting:
     def fingerprint(self) -> str:
         """Stable hash for dedupe across sources and re-runs.
 
-        Deliberately based on title+company+location rather than the ATS id,
-        so the same role cross-posted to two boards collapses to one row.
+        Deliberately based on title+company+location+description rather than
+        the ATS id, so the same role cross-posted to two boards collapses to
+        one row while two distinct postings that happen to share a
+        title/company/location stay separate (see data-model.md "Dedupe
+        identity revision").
+
+        Accepted failure mode: editing a posting's description (or
+        board-specific boilerplate on a cross-post) changes this fingerprint,
+        so an already-seen role can re-surface in a later digest as "new".
+        This is intentional — the maintainer can flag the re-surfaced row
+        with the `duplicate` application status to suppress it permanently.
+        The alternative (the old three-part key) silently dropped distinct
+        same-title postings via INSERT OR IGNORE, which is worse: silent data
+        loss instead of a visible, correctable re-surfacing.
         """
-        key = f"{self.title.lower()}|{self.company.lower()}|{self.location.lower()}"
+        key = (
+            f"{self.title.lower()}|{self.company.lower()}|"
+            f"{self.location.lower()}|{self.description.lower()}"
+        )
         return hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
 
     def to_row(self) -> dict:

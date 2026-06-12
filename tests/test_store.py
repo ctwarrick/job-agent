@@ -1,3 +1,7 @@
+import hashlib
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
+
 from job_agent import store
 from job_agent.schema import normalize
 
@@ -55,3 +59,230 @@ def test_unscored_returns_only_unscored_postings(tmp_path):
         )
 
     assert store.unscored(db) == []
+
+
+def test_init_default_path_uses_data_dir(tmp_path, monkeypatch):
+    data_dir = tmp_path / "data"
+    cwd_dir = tmp_path / "cwd"
+    data_dir.mkdir()
+    cwd_dir.mkdir()
+
+    monkeypatch.setenv("JOBAGENT_DATA_DIR", str(data_dir))
+    monkeypatch.chdir(cwd_dir)
+
+    store.init()
+
+    assert (data_dir / "jobs.db").exists()
+    assert not (cwd_dir / "jobs.db").exists()
+
+
+def test_data_path_defaults_to_local_when_unset(monkeypatch):
+    monkeypatch.delenv("JOBAGENT_DATA_DIR", raising=False)
+    assert store.data_path("jobs.db") == "jobs.db"
+
+
+def test_migrate_rekeys_fingerprints_and_preserves_state(tmp_path):
+    db = str(tmp_path / "jobs.db")
+
+    title, company, location, description = "Engineer", "Acme", "Remote", "Build things."
+    old_fingerprint = hashlib.sha256(
+        f"{title.lower()}|{company.lower()}|{location.lower()}".encode("utf-8")
+    ).hexdigest()[:16]
+    new_fingerprint = hashlib.sha256(
+        f"{title.lower()}|{company.lower()}|{location.lower()}|{description.lower()}".encode("utf-8")
+    ).hexdigest()[:16]
+    assert old_fingerprint != new_fingerprint
+
+    with store.connect(db) as conn:
+        conn.executescript(store.DDL)
+        conn.execute("ALTER TABLE postings ADD COLUMN digest_sent_at TEXT")
+        conn.execute(
+            "INSERT INTO postings (fingerprint, source, company, external_id, title, "
+            "location, description, url, posted_at, fetched_at, skills_fit, "
+            "seniority_fit, category_risk, rationale, digest_sent_at) "
+            "VALUES (?, 'greenhouse', ?, '1', ?, ?, ?, 'https://example.com/1', "
+            "NULL, '2026-01-01T00:00:00+00:00', 8, 7, 2, 'looks good', '2026-01-02T00:00:00+00:00')",
+            (old_fingerprint, company, title, location, description),
+        )
+        conn.execute(
+            "INSERT INTO applications (fingerprint, status, notes, updated_at) "
+            "VALUES (?, 'dismissed', 'not interested', '2026-01-02T00:00:00+00:00')",
+            (old_fingerprint,),
+        )
+
+    store.init(db)
+
+    with store.connect(db) as conn:
+        posting = conn.execute(
+            "SELECT * FROM postings WHERE fingerprint=?", (new_fingerprint,)
+        ).fetchone()
+        application = conn.execute(
+            "SELECT * FROM applications WHERE fingerprint=?", (new_fingerprint,)
+        ).fetchone()
+        old_posting = conn.execute(
+            "SELECT * FROM postings WHERE fingerprint=?", (old_fingerprint,)
+        ).fetchone()
+
+    assert old_posting is None
+    assert posting is not None
+    assert posting["skills_fit"] == 8
+    assert posting["seniority_fit"] == 7
+    assert posting["category_risk"] == 2
+    assert posting["rationale"] == "looks good"
+    assert posting["digest_sent_at"] == "2026-01-02T00:00:00+00:00"
+
+    assert application is not None
+    assert application["status"] == "dismissed"
+    assert application["notes"] == "not interested"
+
+    # idempotent: running init again does not error and leaves state intact
+    store.init(db)
+    with store.connect(db) as conn:
+        postings = conn.execute("SELECT * FROM postings").fetchall()
+        applications = conn.execute("SELECT * FROM applications").fetchall()
+    assert len(postings) == 1
+    assert len(applications) == 1
+    assert postings[0]["fingerprint"] == new_fingerprint
+    assert applications[0]["fingerprint"] == new_fingerprint
+
+
+# --- runs table (data-model.md "runs") -------------------------------------
+
+
+def test_init_creates_runs_table_with_expected_columns(tmp_path):
+    db = str(tmp_path / "jobs.db")
+    store.init(db)
+    with store.connect(db) as conn:
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(runs)")}
+    assert cols == {
+        "id",
+        "digest_date",
+        "started_at",
+        "finished_at",
+        "outcome",
+        "attempt",
+        "failed_sources",
+        "detail",
+    }
+
+
+def test_start_run_assigns_one_based_attempt_per_digest_date(tmp_path):
+    db = str(tmp_path / "jobs.db")
+    store.init(db)
+
+    first_id = store.start_run("2026-06-11", db)
+    second_id = store.start_run("2026-06-11", db)
+    other_day_id = store.start_run("2026-06-12", db)
+
+    with store.connect(db) as conn:
+        rows = {
+            r["id"]: r
+            for r in conn.execute("SELECT * FROM runs").fetchall()
+        }
+
+    assert rows[first_id]["attempt"] == 1
+    assert rows[first_id]["digest_date"] == "2026-06-11"
+    assert rows[first_id]["outcome"] is None
+    assert rows[first_id]["finished_at"] is None
+    assert rows[second_id]["attempt"] == 2
+    assert rows[other_day_id]["attempt"] == 1
+
+
+def test_finish_run_sets_outcome_and_failure_detail(tmp_path):
+    db = str(tmp_path / "jobs.db")
+    store.init(db)
+
+    run_id = store.start_run("2026-06-11", db)
+    store.finish_run(
+        run_id,
+        outcome="degraded",
+        failed_sources=[{"source": "greenhouse", "company_slug": "acme", "error": "404"}],
+        detail="1 source failed",
+        path=db,
+    )
+
+    with store.connect(db) as conn:
+        row = conn.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
+
+    assert row["outcome"] == "degraded"
+    assert row["finished_at"] is not None
+    assert row["detail"] == "1 source failed"
+    assert "greenhouse" in row["failed_sources"]
+
+
+def test_startup_decision_proceeds_with_no_prior_runs(tmp_path):
+    db = str(tmp_path / "jobs.db")
+    store.init(db)
+
+    assert store.startup_decision("2026-06-11", force=False, path=db) == "proceed"
+
+
+def test_startup_decision_blocks_on_fresh_inflight_run_even_with_force(tmp_path):
+    db = str(tmp_path / "jobs.db")
+    store.init(db)
+
+    now = datetime.now(timezone.utc).isoformat()
+    with store.connect(db) as conn:
+        conn.execute(
+            "INSERT INTO runs (digest_date, started_at, attempt) VALUES (?, ?, 1)",
+            ("2026-06-11", now),
+        )
+
+    assert store.startup_decision("2026-06-11", force=False, path=db) == "skip_inflight"
+    # not bypassed by JOBAGENT_FORCE
+    assert store.startup_decision("2026-06-11", force=True, path=db) == "skip_inflight"
+
+
+def test_startup_decision_marks_stale_inflight_failed_and_proceeds(tmp_path):
+    db = str(tmp_path / "jobs.db")
+    store.init(db)
+
+    stale = (datetime.now(timezone.utc) - timedelta(seconds=901)).isoformat()
+    with store.connect(db) as conn:
+        cur = conn.execute(
+            "INSERT INTO runs (digest_date, started_at, attempt) VALUES (?, ?, 1)",
+            ("2026-06-11", stale),
+        )
+        run_id = cur.lastrowid
+
+    assert store.startup_decision("2026-06-11", force=False, path=db) == "proceed"
+
+    with store.connect(db) as conn:
+        row = conn.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
+    assert row["outcome"] == "failed"
+
+
+def test_startup_decision_skips_already_succeeded_unless_forced(tmp_path):
+    db = str(tmp_path / "jobs.db")
+    store.init(db)
+
+    run_id = store.start_run("2026-06-11", db)
+    store.finish_run(run_id, outcome="success", failed_sources=None, detail=None, path=db)
+
+    assert store.startup_decision("2026-06-11", force=False, path=db) == "skip_succeeded"
+    assert store.startup_decision("2026-06-11", force=True, path=db) == "proceed"
+
+
+def test_startup_decision_skips_degraded_outcome_too(tmp_path):
+    db = str(tmp_path / "jobs.db")
+    store.init(db)
+
+    run_id = store.start_run("2026-06-11", db)
+    store.finish_run(run_id, outcome="degraded", failed_sources=None, detail="1 failed", path=db)
+
+    assert store.startup_decision("2026-06-11", force=False, path=db) == "skip_succeeded"
+
+
+# --- digest_date (JOBAGENT_TZ, zoneinfo) ------------------------------------
+
+
+def test_digest_date_defaults_to_los_angeles(monkeypatch):
+    monkeypatch.delenv("JOBAGENT_TZ", raising=False)
+    expected = datetime.now(ZoneInfo("America/Los_Angeles")).strftime("%Y-%m-%d")
+    assert store.digest_date() == expected
+
+
+def test_digest_date_honors_jobagent_tz(monkeypatch):
+    monkeypatch.setenv("JOBAGENT_TZ", "UTC")
+    expected = datetime.now(ZoneInfo("UTC")).strftime("%Y-%m-%d")
+    assert store.digest_date() == expected

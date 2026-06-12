@@ -21,7 +21,6 @@ import json
 import os
 import smtplib
 import ssl
-import sys
 from datetime import datetime, timezone
 from email.message import EmailMessage
 from html import escape
@@ -53,7 +52,7 @@ BUCKET_LABEL = {
 }
 
 
-def _fetch_digest(path: str = "jobs.db") -> list[dict]:
+def _fetch_digest(path: str | None = None) -> list[dict]:
     with store.connect(path) as conn:
         rows = conn.execute(QUERY, (MIN_SKILLS, MAX_RISK)).fetchall()
     out = []
@@ -138,7 +137,7 @@ def _send(subject: str, text: str, html: str) -> None:
             s.send_message(msg)
 
 
-def _mark_sent(fingerprints: list[str], path: str = "jobs.db") -> None:
+def _mark_sent(fingerprints: list[str], path: str | None = None) -> None:
     now = datetime.now(timezone.utc).isoformat()
     with store.connect(path) as conn:
         conn.executemany(
@@ -147,29 +146,43 @@ def _mark_sent(fingerprints: list[str], path: str = "jobs.db") -> None:
         )
 
 
-def main() -> None:
-    rows = _fetch_digest()
-    if not rows:
-        print("No new qualifying postings; nothing to send.")
-        return
+def main() -> bool:
+    """Send the digest (or a no-matches notice) and report confirmed-send status.
 
-    groups = _group(rows)
-    text = _render_text(groups)
-    html = _render_html(groups)
-    subject = f"Job digest — {len(rows)} new match{'es' if len(rows) != 1 else ''}"
+    Returns True only once `_send` has returned without raising — callers
+    (main.py) commit digest_sent_at and the run's success outcome strictly
+    after that confirmation (FR-004, data-model.md "Validation rules").
+    """
+    rows = _fetch_digest()
+
+    if not rows:
+        subject = "Job digest — no new matches"
+        text = "No new qualifying postings today.\n"
+        html = "<p>No new qualifying postings today.</p>"
+    else:
+        groups = _group(rows)
+        text = _render_text(groups)
+        html = _render_html(groups)
+        subject = f"Job digest — {len(rows)} new match{'es' if len(rows) != 1 else ''}"
 
     if os.environ.get("DIGEST_DRY_RUN") == "1":
         print(subject)
         print(text)
-        return
+        return True
 
     try:
         _send(subject, text, html)
     except Exception as e:
-        sys.exit(f"send failed: {e}")
+        print(f"send failed: {e}")
+        return False
 
-    _mark_sent([r["fingerprint"] for r in rows])
-    print(f"Sent {len(rows)} postings.")
+    if rows:
+        _mark_sent([r["fingerprint"] for r in rows])
+        print(f"Sent {len(rows)} postings.")
+    else:
+        print("Sent no-new-matches notice.")
+
+    return True
 
 
 if __name__ == "__main__":
