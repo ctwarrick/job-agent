@@ -1,4 +1,6 @@
 import importlib
+import json
+import re
 from pathlib import Path
 
 import pytest
@@ -226,9 +228,7 @@ def test_main_sends_only_plausible_postings_to_llm(tmp_path: Path, monkeypatch) 
         "posted_at": None,
     }
 
-    monkeypatch.setattr(
-        reloaded.store, "scorable", lambda *a, **k: [plausible_row, denylisted_row]
-    )
+    monkeypatch.setattr(reloaded.store, "scorable", lambda *a, **k: [plausible_row, denylisted_row])
     monkeypatch.setattr(reloaded.store, "record_filter_rejections", lambda *a, **k: None)
 
     captured = {}
@@ -282,18 +282,14 @@ def test_main_persists_filter_rejections_with_reasons(tmp_path: Path, monkeypatc
         "posted_at": None,
     }
 
-    monkeypatch.setattr(
-        reloaded.store, "scorable", lambda *a, **k: [plausible_row, denylisted_row]
-    )
+    monkeypatch.setattr(reloaded.store, "scorable", lambda *a, **k: [plausible_row, denylisted_row])
 
     recorded = {}
 
     def fake_record_filter_rejections(rejections, *a, **k):
         recorded["rejections"] = list(rejections)
 
-    monkeypatch.setattr(
-        reloaded.store, "record_filter_rejections", fake_record_filter_rejections
-    )
+    monkeypatch.setattr(reloaded.store, "record_filter_rejections", fake_record_filter_rejections)
 
     def fake_score_batch(client, system, profile, rows):
         return [
@@ -376,8 +372,7 @@ def test_main_exits_before_scoring_when_filter_toml_malformed(tmp_path: Path, mo
     """A structurally-invalid filter.toml (max_days not an int) is
     fail-loud (FR-014): sys.exit before any _score_batch call."""
     data_dir, _ = _setup_score_env(tmp_path, monkeypatch, write_filter=False)
-    (data_dir / "filter.toml").write_text(
-        """
+    (data_dir / "filter.toml").write_text("""
 [denylist]
 title_keywords = ["sales"]
 
@@ -391,8 +386,7 @@ max_days = "thirty"
 remote_ok = true
 regions = []
 metros = []
-"""
-    )
+""")
     reloaded = importlib.reload(score)
 
     monkeypatch.setattr(reloaded.store, "scorable", lambda *a, **k: [])
@@ -693,3 +687,193 @@ def test_main_exits_before_scoring_on_invalid_price_env(
 
     with pytest.raises(SystemExit):
         reloaded.main()
+
+
+# --- US3: prompt caching of the static prefix (feature 002) ------------------
+
+
+class _Usage:
+    """Stand-in for anthropic.types.Usage exposing the four int fields
+    _score_batch / main need for cache accounting."""
+
+    def __init__(
+        self,
+        input_tokens: int,
+        output_tokens: int,
+        cache_creation_input_tokens: int,
+        cache_read_input_tokens: int,
+    ) -> None:
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
+        self.cache_creation_input_tokens = cache_creation_input_tokens
+        self.cache_read_input_tokens = cache_read_input_tokens
+
+
+class _TextBlock:
+    """Stand-in for an anthropic content block with type == 'text'."""
+
+    def __init__(self, text: str) -> None:
+        self.type = "text"
+        self.text = text
+
+
+class _Response:
+    """Stand-in for the object returned by messages.create."""
+
+    def __init__(self, content: list, usage: _Usage) -> None:
+        self.content = content
+        self.usage = usage
+
+
+class _RecordingAnthropic:
+    """Stub Anthropic client recording every messages.create call's kwargs.
+
+    Models prompt caching: the first call reports cache_creation_input_tokens
+    > 0 and cache_read_input_tokens == 0; subsequent calls report
+    cache_read_input_tokens > 0 and cache_creation_input_tokens == 0.
+    """
+
+    def __init__(self, *args, **kwargs) -> None:
+        self.calls: list[dict] = []
+        self.usages: list[_Usage] = []
+        self.messages = self
+
+    def create(self, **kwargs):
+        call_index = len(self.calls)
+        self.calls.append(kwargs)
+
+        # Recover the rows being scored from the user-turn postings block so
+        # the canned response's fingerprints match the batch.
+        user_content = kwargs["messages"][0]["content"]
+        fingerprints = re.findall(r"--- fingerprint: (\S+)", user_content)
+        scores = [
+            {
+                "fingerprint": fp,
+                "skills_fit": 8,
+                "seniority_fit": 7,
+                "category_risk": 2,
+                "bucket": "engineering",
+                "comp_flag": "ok",
+                "trajectory_note": "note",
+            }
+            for fp in fingerprints
+        ]
+
+        if call_index == 0:
+            usage = _Usage(
+                input_tokens=2500,
+                output_tokens=300,
+                cache_creation_input_tokens=2200,
+                cache_read_input_tokens=0,
+            )
+        else:
+            usage = _Usage(
+                input_tokens=300,
+                output_tokens=300,
+                cache_creation_input_tokens=0,
+                cache_read_input_tokens=2200,
+            )
+
+        self.usages.append(usage)
+        return _Response(content=[_TextBlock(json.dumps(scores))], usage=usage)
+
+
+def test_score_batch_sends_cached_system_block(tmp_path: Path, monkeypatch) -> None:
+    """_score_batch's system kwarg is a list with one cached text block
+    (FR-009/FR-010: cache_control == {"type": "ephemeral"}, type "text")."""
+    _setup_score_env(tmp_path, monkeypatch)
+    reloaded = importlib.reload(score)
+
+    client = _RecordingAnthropic()
+    rows = _plausible_rows(3)
+
+    reloaded._score_batch(
+        client, "stub screening prompt\n", "# Profile\nstub profile content\n", rows
+    )
+
+    assert len(client.calls) == 1
+    system = client.calls[0]["system"]
+    assert isinstance(system, list)
+    assert len(system) == 1
+    block = system[0]
+    assert block["type"] == "text"
+    assert block["cache_control"] == {"type": "ephemeral"}
+
+
+def test_score_batch_cached_prefix_contains_screening_and_profile_bytes(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """FR-010: the cached system block's text contains both the
+    screening-prompt and profile bytes verbatim, so a content change to
+    either alters the cached bytes (and thus the cache key)."""
+    _setup_score_env(tmp_path, monkeypatch)
+    reloaded = importlib.reload(score)
+
+    client = _RecordingAnthropic()
+    rows = _plausible_rows(3)
+    screening_text = "stub screening prompt\n"
+    profile_text = "# Profile\nstub profile content\n"
+
+    reloaded._score_batch(client, screening_text, profile_text, rows)
+
+    block_text = client.calls[0]["system"][0]["text"]
+    assert screening_text in block_text
+    assert profile_text in block_text
+
+
+def test_score_batch_user_turn_has_only_postings(tmp_path: Path, monkeypatch) -> None:
+    """The user message contains only the postings block: no profile or
+    screening-prompt text, but the batch's posting fingerprints are
+    present."""
+    _setup_score_env(tmp_path, monkeypatch)
+    reloaded = importlib.reload(score)
+
+    client = _RecordingAnthropic()
+    rows = _plausible_rows(3)
+    screening_text = "stub screening prompt\n"
+    profile_text = "# Profile\nstub profile content\n"
+
+    reloaded._score_batch(client, screening_text, profile_text, rows)
+
+    user_content = client.calls[0]["messages"][0]["content"]
+    assert profile_text not in user_content
+    assert screening_text not in user_content
+    assert "plausible0" in user_content
+
+
+def test_main_reuses_cache_across_batches(tmp_path: Path, monkeypatch) -> None:
+    """FR-009: across a multi-batch run, every messages.create call carries
+    an ephemeral cache_control system block, the system-block text is
+    byte-identical across all calls (stable cache key), and the summed
+    cache_read_input_tokens is > 0 after the first batch."""
+    monkeypatch.setenv("JOBAGENT_MAX_POSTINGS_PER_RUN", "1000")
+    monkeypatch.setenv("JOBAGENT_MAX_COST_PER_RUN", "1000")
+    _setup_score_env(tmp_path, monkeypatch)
+    reloaded = importlib.reload(score)
+
+    # BATCH=6: 7 rows -> 2 batches (6 + 1).
+    rows = _plausible_rows(7)
+    monkeypatch.setattr(reloaded.store, "scorable", lambda *a, **k: rows)
+    monkeypatch.setattr(reloaded.store, "record_filter_rejections", lambda *a, **k: None)
+    monkeypatch.setattr(reloaded, "_write_scores", lambda scores: None)
+
+    client = _RecordingAnthropic()
+    monkeypatch.setattr(reloaded, "Anthropic", lambda *a, **k: client)
+
+    reloaded.main()
+
+    assert len(client.calls) == 2
+
+    system_texts = []
+    for call in client.calls:
+        system = call["system"]
+        assert isinstance(system, list)
+        assert len(system) == 1
+        assert system[0]["cache_control"] == {"type": "ephemeral"}
+        assert system[0]["type"] == "text"
+        system_texts.append(system[0]["text"])
+
+    assert system_texts[0] == system_texts[1]
+
+    cache_read_total = sum(u.cache_read_input_tokens for u in client.usages)
+    assert cache_read_total > 0

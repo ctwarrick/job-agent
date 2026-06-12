@@ -18,6 +18,12 @@ Each posting gets:
 The screening instructions (the system prompt) live in screening_prompt.md so
 they can be tuned without code changes, alongside profile.md.
 
+The screening prompt, the profile, the salary-floor rule, and the JSON
+output-format instructions form one static system prefix per run, sent as a
+single cached text block (cache_control: ephemeral) so repeated batches
+reuse the cache instead of re-billing the full prefix. Only the per-batch
+postings go in the user turn.
+
 Env:
   ANTHROPIC_API_KEY            required
   JOBAGENT_SALARY_FLOOR        required, base salary floor in dollars (e.g. 120000)
@@ -68,18 +74,18 @@ DEFAULT_PRICE_CACHE_READ = 0.30
 DEFAULT_MAX_POSTINGS_PER_RUN = 200
 DEFAULT_MAX_COST_PER_RUN = 5.00
 
-PROMPT_TEMPLATE = """## CANDIDATE PROFILE
+SYSTEM_PREFIX_TEMPLATE = """{screening}
+
+## CANDIDATE PROFILE
 {profile}
 
 ## SALARY FLOOR
 ${floor:,} base. If the posting lists comp clearly below this, comp_flag="lowball". \
 If it lists comp at/above, "ok". If no comp is stated, "unknown".
 
-## POSTINGS TO SCORE ({n})
-{postings}
-
 ## OUTPUT
-Return a JSON array of exactly {n} objects, same order as the postings. Each:
+Return a JSON array with one object per posting below, in the same order as \
+the postings. Each:
 {{
   "fingerprint": "<echo the posting's fingerprint>",
   "skills_fit": <int 0-10>,
@@ -90,6 +96,9 @@ Return a JSON array of exactly {n} objects, same order as the postings. Each:
   "trajectory_note": "<one sentence: which way this role pulls the career and why>"
 }}
 Output ONLY the JSON array."""
+
+USER_TEMPLATE = """## POSTINGS TO SCORE
+{postings}"""
 
 
 def _format_postings(rows: list[dict]) -> str:
@@ -121,8 +130,12 @@ def _format_postings(rows: list[dict]) -> str:
 def _score_batch(client: Anthropic, system: str, profile: str, rows: list[dict]) -> list[dict]:
     """Score a batch of postings using the Anthropic API.
 
-    Calls claude with the system prompt, profile, and formatted postings.
-    Expects a JSON array response with scoring fields (skills_fit, etc.).
+    Builds a single static system prefix from the screening prompt, the
+    candidate profile, the salary-floor rule, and the JSON output-format
+    instructions, and sends it as one cached text block (FR-009/FR-010) so
+    its bytes -- and thus the cache key -- stay identical across batches in
+    a run. The user turn carries only the per-batch postings block. Expects
+    a JSON array response with scoring fields (skills_fit, etc.).
 
     Args:
         client: Anthropic client instance.
@@ -136,17 +149,17 @@ def _score_batch(client: Anthropic, system: str, profile: str, rows: list[dict])
         (skills_fit, seniority_fit, category_risk, bucket, comp_flag,
         trajectory_note).
     """
-    prompt = PROMPT_TEMPLATE.format(
+    system_prefix = SYSTEM_PREFIX_TEMPLATE.format(
+        screening=system,
         profile=profile,
         floor=SALARY_FLOOR,
-        n=len(rows),
-        postings=_format_postings(rows),
     )
+    user_content = USER_TEMPLATE.format(postings=_format_postings(rows))
     resp = client.messages.create(
         model=MODEL,
         max_tokens=2000,
-        system=system,
-        messages=[{"role": "user", "content": prompt}],
+        system=[{"type": "text", "text": system_prefix, "cache_control": {"type": "ephemeral"}}],
+        messages=[{"role": "user", "content": user_content}],
     )
     text = "".join(b.text for b in resp.content if b.type == "text").strip()
     # be tolerant of accidental fences
