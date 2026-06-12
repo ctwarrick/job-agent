@@ -13,7 +13,7 @@
 
 ## Requirement Completeness
 
-- [ ] No [NEEDS CLARIFICATION] markers remain
+- [x] No [NEEDS CLARIFICATION] markers remain
 - [x] Requirements are testable and unambiguous
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic (no implementation details)
@@ -31,13 +31,11 @@
 
 ## Notes
 
-- **3 [NEEDS CLARIFICATION] markers remain by design** — deferred to
-  `/speckit-clarify` per the maintainer's decision:
-  1. FR-004 — concrete filter criteria (buckets/title keywords, locations,
-     seniority bands, max posting age, salary-floor handling).
-  2. FR-005 — cap form (posting count vs. estimated dollars vs. both) and default
-     values.
-  3. Edge case — filter fail-open vs. fail-closed on postings missing the fields
-     the gate keys on.
-- All other checklist items pass. Resolve the three markers in `/speckit-clarify`
-  before `/speckit-plan`.
+- **3 [NEEDS CLARIFICATION] markers resolved** in the 2026-06-12 `/speckit-clarify`
+  session (see spec `## Clarifications`):
+  1. FR-004 — function gate is a denylist (hard reject) + advisory allowlist, plus
+     posting-age and location gates; salary and seniority stay LLM judgments.
+  2. FR-005 — cap is both a posting-count and an estimated-dollar limit, whichever
+     hits first; defaults 200 postings / $5 per run.
+  3. Edge case — metadata-dependent gates fail-open on missing fields.
+- All checklist items now pass. Ready for `/speckit-plan`.

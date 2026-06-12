@@ -8,6 +8,15 @@
 
 **Input**: User description: "Implement Constitution Principle VII for the score stage — make LLM scoring cost proportionate to value via deterministic pre-filtering, prompt caching of the static prefix, a per-run budget cap, and per-run cost observability. Scope is the score stage only."
 
+## Clarifications
+
+### Session 2026-06-12
+
+- Q: FR-004 — should the deterministic function gate use a denylist, an allowlist, or both? → A: Both — a denylist of clearly-irrelevant functions is the only hard reject gate; a target-function allowlist is advisory (prioritization/flagging) and never rejects a posting on its own.
+- Q: FR-004 — which secondary deterministic gates beyond function should v1 apply? → A: Posting age and location. Salary floor and seniority stay LLM judgments (no structured comp field pre-call; seniority is a weak title-only signal).
+- Q: FR-005 — cap by posting count, estimated dollars, or both, and what defaults? → A: Both, whichever is reached first; defaults 200 postings and $5 estimated spend per run.
+- Q: Edge case — fail-open or fail-closed when a posting lacks a field a gate keys on? → A: Fail-open (proceed to the LLM); the function denylist still applies via the always-present title.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Filter before you spend (Priority: P1)
@@ -130,10 +139,11 @@ postings fetched/filtered/scored, input+output tokens, and estimated cost.
   rounded up to a full batch.
 - **Filter criteria file missing or malformed**: per Principle V, fail loud
   before any LLM call rather than silently scoring everything.
-- **Posting with missing fields** the filter keys on (no location, no posted
-  date): the gate must have a defined default (pass to LLM vs. reject) so it is
-  never an unhandled crash. [NEEDS CLARIFICATION: should the filter fail-open
-  (send to LLM) or fail-closed (reject) on missing filterable fields?]
+- **Posting with missing fields** the filter keys on (no `posted_at`, location
+  "Unspecified"): the metadata-dependent gates (posting-age, location)
+  **fail-open** — the posting proceeds to the LLM rather than being rejected — so
+  a missing field never causes a silent drop (SC-004). The function denylist
+  still applies, since the title is always present.
 - **Estimated cost drift**: pricing inputs change over time; estimated cost is a
   configurable approximation, not a billing source of truth.
 
@@ -150,15 +160,30 @@ postings fetched/filtered/scored, input+output tokens, and estimated cost.
 - **FR-003**: Postings rejected by the filter MUST be persisted with a
   machine-readable rejection reason and MUST NOT be re-evaluated on subsequent
   runs.
-- **FR-004**: The concrete filter criteria MUST cover, at minimum:
-  [NEEDS CLARIFICATION: which buckets/title keywords, which locations
-  (remote? specific metros?), which seniority bands, what maximum posting age,
-  and the salary-floor handling count a posting as "plausible"? — to be resolved
-  in /speckit-clarify].
-- **FR-005**: The score stage MUST enforce a configurable per-run budget cap,
-  expressed as a maximum number of postings scored and/or a maximum estimated
-  dollar spend per run. [NEEDS CLARIFICATION: cap by posting count, by estimated
-  dollars, or both — and what default values?]
+- **FR-004**: The deterministic relevance filter MUST apply, at minimum, these
+  gates against already-fetched posting fields:
+  - **Function denylist (hard gate)**: reject a posting whose title matches a
+    configurable denylist of clearly-irrelevant functions (e.g. sales, finance/
+    accounting, clinical/nursing, recruiting/HR, marketing, legal). This is the
+    only gate that rejects a posting on its own.
+  - **Target-function allowlist (advisory)**: a configurable allowlist of
+    target-function title keywords (engineering, TPM, engineering management,
+    scrum master) MAY inform prioritization/flagging but MUST NOT reject a
+    posting on its own (protects SC-004).
+  - **Posting-age gate**: reject postings older than a configurable maximum age
+    (default 30 days) when `posted_at` is present.
+  - **Location gate**: keep remote roles plus a configurable target-metro
+    allowlist; reject clearly out-of-region roles.
+
+  Salary floor remains an LLM judgment (`comp_flag`) — there is no structured
+  comp field pre-call — and seniority remains LLM scoring (`seniority_fit`, a
+  weak title-only deterministic signal); neither is a deterministic gate in v1.
+  The concrete keyword / metro / age values live in the runtime tuning file
+  (FR-002), not in code.
+- **FR-005**: The score stage MUST enforce a configurable per-run budget cap
+  expressed as BOTH a maximum number of postings scored AND a maximum estimated
+  dollar spend per run; the run stops when EITHER limit is reached first.
+  Defaults: 200 postings and $5.00 estimated spend per run.
 - **FR-006**: When the cap is reached, the run MUST stop scoring further
   postings, surface the stop loudly in logs (Constitution Principle V), and MUST
   NOT exceed the cap.
@@ -189,9 +214,11 @@ postings fetched/filtered/scored, input+output tokens, and estimated cost.
 - **Posting (scoring state)**: existing entity; gains an explicit lifecycle of
   *unscored → filtered-out (with reason) | scored*, so each posting is processed
   at most once and its disposition is explainable.
-- **Filter criteria**: runtime-file-defined set of deterministic gates (function/
-  bucket, title keywords, location, seniority, posting age, salary floor) that
-  decide plausible vs. rejected. Subjective tuning, not code.
+- **Filter criteria**: runtime-file-defined deterministic gates — a function
+  denylist (hard reject) plus an advisory target-function allowlist, a
+  posting-age gate, and a location gate — that decide plausible vs. rejected.
+  Salary floor and seniority stay LLM judgments, not deterministic gates.
+  Subjective tuning, not code.
 - **Run budget**: configurable per-run cap (posting count and/or estimated
   dollars) plus the pricing inputs used to estimate cost.
 - **Run summary**: per-run record of counts (fetched/filtered/scored/remaining),
