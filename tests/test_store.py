@@ -150,6 +150,123 @@ def test_unscored_returns_only_unscored_postings(tmp_path: Path) -> None:
     assert store.unscored(db) == []
 
 
+# --- filter_reason migration + scorable() + record_filter_rejections -------
+
+
+def test_migrate_adds_filter_reason_column(tmp_path: Path) -> None:
+    db = str(tmp_path / "jobs.db")
+    store.init(db)
+    with store.connect(db) as conn:
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(postings)")}
+    assert "filter_reason" in cols
+
+
+def test_migrate_filter_reason_is_idempotent(tmp_path: Path) -> None:
+    db = str(tmp_path / "jobs.db")
+    store.init(db)
+    # running init/_migrate again must not error and the column stays present
+    store.init(db)
+    with store.connect(db) as conn:
+        cols = [r["name"] for r in conn.execute("PRAGMA table_info(postings)")]
+    assert cols.count("filter_reason") == 1
+
+
+def test_migrate_does_not_alter_existing_skills_fit(tmp_path: Path) -> None:
+    db = str(tmp_path / "jobs.db")
+    store.init(db)
+    posting = _posting()
+    store.upsert_postings([posting], db)
+    with store.connect(db) as conn:
+        conn.execute(
+            "UPDATE postings SET skills_fit=7 WHERE fingerprint=?",
+            (posting.fingerprint,),
+        )
+
+    # re-running the migration must leave the existing score untouched (I4)
+    store.init(db)
+
+    with store.connect(db) as conn:
+        row = conn.execute(
+            "SELECT skills_fit FROM postings WHERE fingerprint=?",
+            (posting.fingerprint,),
+        ).fetchone()
+    assert row["skills_fit"] == 7
+
+
+def test_scorable_includes_unscored_unfiltered_row(tmp_path: Path) -> None:
+    db = str(tmp_path / "jobs.db")
+    store.init(db)
+    posting = _posting()
+    store.upsert_postings([posting], db)
+
+    rows = store.scorable(db)
+    assert len(rows) == 1
+    assert rows[0]["fingerprint"] == posting.fingerprint
+    assert rows[0]["filter_reason"] is None
+
+
+def test_scorable_excludes_already_scored_row(tmp_path: Path) -> None:
+    db = str(tmp_path / "jobs.db")
+    store.init(db)
+    posting = _posting()
+    store.upsert_postings([posting], db)
+    with store.connect(db) as conn:
+        conn.execute(
+            "UPDATE postings SET skills_fit=8 WHERE fingerprint=?",
+            (posting.fingerprint,),
+        )
+
+    assert store.scorable(db) == []
+
+
+def test_scorable_excludes_filtered_row_but_unscored_still_includes_it(
+    tmp_path: Path,
+) -> None:
+    db = str(tmp_path / "jobs.db")
+    store.init(db)
+    posting = _posting()
+    store.upsert_postings([posting], db)
+    with store.connect(db) as conn:
+        conn.execute(
+            "UPDATE postings SET filter_reason='function_denylist:sales' "
+            "WHERE fingerprint=?",
+            (posting.fingerprint,),
+        )
+
+    assert store.scorable(db) == []
+    # unscored() (skills_fit IS NULL only) is unchanged and still returns it
+    unscored_rows = store.unscored(db)
+    assert len(unscored_rows) == 1
+    assert unscored_rows[0]["fingerprint"] == posting.fingerprint
+
+
+def test_record_filter_rejections_sets_reasons(tmp_path: Path) -> None:
+    db = str(tmp_path / "jobs.db")
+    store.init(db)
+    rejected = _posting(external_id="1", url="https://example.com/1")
+    # Distinct title -> distinct fingerprint (fingerprint excludes external_id/url),
+    # otherwise INSERT OR IGNORE would collapse these into one row.
+    untouched = _posting(external_id="2", title="Designer", url="https://example.com/2")
+    store.upsert_postings([rejected, untouched], db)
+
+    store.record_filter_rejections(
+        [(rejected.fingerprint, "function_denylist:sales")], path=db
+    )
+
+    with store.connect(db) as conn:
+        rejected_row = conn.execute(
+            "SELECT filter_reason FROM postings WHERE fingerprint=?",
+            (rejected.fingerprint,),
+        ).fetchone()
+        untouched_row = conn.execute(
+            "SELECT filter_reason FROM postings WHERE fingerprint=?",
+            (untouched.fingerprint,),
+        ).fetchone()
+
+    assert rejected_row["filter_reason"] == "function_denylist:sales"
+    assert untouched_row["filter_reason"] is None
+
+
 def test_init_default_path_uses_data_dir(tmp_path: Path, monkeypatch) -> None:
     data_dir = tmp_path / "data"
     cwd_dir = tmp_path / "cwd"

@@ -41,7 +41,9 @@ CREATE TABLE IF NOT EXISTS postings (
     skills_fit    INTEGER,
     seniority_fit INTEGER,
     category_risk INTEGER,
-    rationale     TEXT
+    rationale     TEXT,
+    -- Deterministic pre-filter verdict; NULL means "not filtered"
+    filter_reason TEXT
 );
 
 CREATE TABLE IF NOT EXISTS applications (
@@ -137,6 +139,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(postings)")}
     if "digest_sent_at" not in cols:
         conn.execute("ALTER TABLE postings ADD COLUMN digest_sent_at TEXT")
+    if "filter_reason" not in cols:
+        conn.execute("ALTER TABLE postings ADD COLUMN filter_reason TEXT")
 
     _migrate_fingerprints(conn)
 
@@ -234,6 +238,48 @@ def unscored(path: str | None = None) -> list[sqlite3.Row]:
     """
     with connect(path) as conn:
         return conn.execute("SELECT * FROM postings WHERE skills_fit IS NULL").fetchall()
+
+
+def scorable(path: str | None = None) -> list[sqlite3.Row]:
+    """Fetch postings eligible for this run's filter + LLM pass.
+
+    Narrower than `unscored()`: excludes rows a prior run's filter already
+    rejected (`filter_reason` set), so they are never re-examined
+    (data-model.md "Posting scoring lifecycle", I1).
+
+    Args:
+        path: Optional path to jobs.db; defaults to data_path("jobs.db").
+
+    Returns:
+        List of sqlite3.Row objects for scorable postings.
+    """
+    with connect(path) as conn:
+        return conn.execute(
+            "SELECT * FROM postings WHERE skills_fit IS NULL AND filter_reason IS NULL"
+        ).fetchall()
+
+
+def record_filter_rejections(
+    rejections: list[tuple[str, str]] | tuple[tuple[str, str], ...],
+    path: str | None = None,
+) -> None:
+    """Persist the deterministic filter's verdicts in one transaction.
+
+    Called once per run after the filter pass, before the LLM loop, so
+    rejected rows are durably out of scope even if the LLM loop later
+    cap-stops or crashes (FR-003, FR-007).
+
+    Args:
+        rejections: Iterable of (fingerprint, reason) pairs, e.g.
+            ("abc123", "function_denylist:sales").
+        path: Optional path to jobs.db; defaults to data_path("jobs.db").
+    """
+    rows = list(rejections)
+    with connect(path) as conn:
+        conn.executemany(
+            "UPDATE postings SET filter_reason=? WHERE fingerprint=?",
+            [(reason, fingerprint) for fingerprint, reason in rows],
+        )
 
 
 def digest_date(tz: str | None = None) -> str:

@@ -1,7 +1,10 @@
 """LLM scoring stage.
 
-Reads unscored postings from SQLite, scores each against profile.md using the
-Anthropic API in small batches, and writes the scores + rationale back.
+Reads scorable postings from SQLite (unscored and not yet filter-rejected),
+runs each through the deterministic relevance gate in filter.py, persists
+rejections, and scores the remaining plausible postings against profile.md
+using the Anthropic API in small batches, writing the scores + rationale
+back.
 
 Each posting gets:
   skills_fit      0-10  how well your technical/leadership substance is used
@@ -30,6 +33,7 @@ from pathlib import Path
 
 from anthropic import Anthropic
 
+from . import filter as jobfilter
 from . import store
 
 MODEL = os.environ.get("JOBAGENT_MODEL", "claude-sonnet-4-6")
@@ -164,8 +168,24 @@ def main() -> None:
         sys.exit("ANTHROPIC_API_KEY not set")
     if not SALARY_FLOOR:
         sys.exit("JOBAGENT_SALARY_FLOOR not set (base salary floor in dollars, e.g. 120000)")
-    rows = store.unscored()
-    if not rows:
+    try:
+        criteria = jobfilter.load_criteria()
+    except Exception as e:
+        sys.exit(f"filter.toml invalid or missing: {e}")
+
+    rows = store.scorable()
+
+    plausible = []
+    rejects = []
+    for row in rows:
+        reason = jobfilter.classify(row, criteria)
+        if reason is None:
+            plausible.append(row)
+        else:
+            rejects.append((row["fingerprint"], reason))
+    store.record_filter_rejections(rejects)
+
+    if not plausible:
         print("Nothing to score.")
         return
 
@@ -173,14 +193,14 @@ def main() -> None:
     profile = Path(store.data_path("profile.md")).read_text()
     client = Anthropic()
 
-    print(f"Scoring {len(rows)} postings in batches of {BATCH}...")
+    print(f"Scoring {len(plausible)} postings in batches of {BATCH}...")
 
-    for i in range(0, len(rows), BATCH):
-        batch = rows[i : i + BATCH]
+    for i in range(0, len(plausible), BATCH):
+        batch = plausible[i : i + BATCH]
         try:
             scores = _score_batch(client, system, profile, batch)
             _write_scores(scores)
-            print(f"  scored {i + len(batch)}/{len(rows)}")
+            print(f"  scored {i + len(batch)}/{len(plausible)}")
         except Exception as e:
             print(f"  ! batch {i}-{i+len(batch)} failed: {e}", file=sys.stderr)
     print("Done.")

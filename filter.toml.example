@@ -1,0 +1,51 @@
+# filter.toml — deterministic pre-LLM relevance gate (feature 002).
+#
+# Copy this file to `filter.toml` (git-ignored) and tune it to your search.
+# All criteria are runtime tuning, not code: edit and the next score run picks
+# them up — no code change, no redeploy of the image.
+#
+# The gate runs BEFORE any LLM call and rejects obviously-irrelevant postings so
+# the model only scores plausible matches. Only the function denylist rejects a
+# posting on its own; the allowlist is advisory, and the age/location gates fail
+# OPEN (a missing field never causes a drop). See
+# specs/002-scoring-spend-efficiency/contracts/filter-criteria.md.
+
+[denylist]
+# HARD reject: a posting whose TITLE contains any of these (case-insensitive
+# substring) is rejected before the LLM. This is the ONLY gate that rejects a
+# posting on its own. Keep it to clearly-irrelevant functions.
+title_keywords = [
+  "sales", "account executive", "accountant", "accounting", "finance",
+  "nurse", "clinical", "recruiter", "recruiting", "talent acquisition",
+  "marketing", "attorney", "paralegal", "counsel",
+]
+
+[allowlist]
+# ADVISORY ONLY: target-function title keywords. MAY flag/prioritize but NEVER
+# rejects a posting on its own (protects against silently dropping a plausible
+# match). May be empty.
+title_keywords = [
+  "engineer", "engineering", "software", "developer", "platform",
+  "technical program manager", "tpm", "engineering manager", "scrum master",
+]
+
+[age]
+# Reject postings older than this many days WHEN posted_at is present.
+# Missing/unparseable posted_at -> fail-open (proceed to the LLM).
+max_days = 30
+
+[location]
+# Keep a posting when it is remote (and remote_ok), OR a comma-delimited token of
+# its location matches `regions`, OR its full location string contains a `metros`
+# entry. Reject a present, parseable location that matches none of these.
+# Missing location or the default "Unspecified" -> fail-open (proceed to the LLM).
+#
+# `regions` is matched on the comma-delimited state/region TOKEN (the "WA" in
+# "Renton, WA" or "Seattle, WA, USA"), as an exact case-insensitive token match,
+# NOT a raw substring -- so "WA" never spuriously matches "Washington, DC". This
+# keeps every suburb of a target metro without enumerating them.
+remote_ok = true
+regions = ["WA", "OR", "PA"]
+# Optional finer keeps, matched as case-insensitive substrings of the full
+# location string -- for forms with no clean state token.
+metros = ["Remote", "Bay Area"]
