@@ -44,10 +44,14 @@ Every subagent prompt must contain:
 ## Rules
 
 - Write each phase's artifact to `docs/work/<task>/` (spec.md, plan.md,
-  build.md, review.md) at the phase boundary, and obey the context-monitor
-  bands per the Context budget protocol in `AGENTS.md`: at ELEVATED finish
+  build.md, review.md) at the phase boundary, keep tracking files (e.g.
+  `tasks.md` checkboxes) current as each task completes — not at close-out —
+  and obey the context-monitor bands per the Context budget protocol in `AGENTS.md`: at ELEVATED finish
   the phase and checkpoint; at HIGH write `handoff.md` and recommend a fresh
   session; at CRITICAL stop dispatching and hand off immediately.
+- A handoff.md is consumed the moment a session resumes from it: at session
+  close, rewrite it to reflect the new state (or mark it superseded in
+  state.md) so the next session never resumes from stale instructions.
 - Don't dispatch for what a single read or grep answers — do it inline.
 - One role per dispatch; if a subagent's output shows it drifted out of scope,
   discard and re-dispatch rather than patching its output yourself.

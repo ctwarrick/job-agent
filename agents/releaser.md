@@ -25,7 +25,9 @@ edit docs.
 1. Read `git log --stat <range>` and the phase artifacts; list the
    user-visible changes (behavior, commands, config), not internal refactors.
 2. Update `CHANGELOG.md` in Keep a Changelog format (create it on the first
-   release), newest version first, dated with today's date.
+   release), newest version first, dated with today's date. Verify every
+   identifier the changelog names (env vars, secret names, commands, file
+   paths) against the code and templates — the same bar as the README check.
 3. Bump `version` in `pyproject.toml`: patch for fixes, minor for features
    and (while pre-1.0) breaking changes. Propose the bump with a one-line
    rationale — never decide a major bump silently.

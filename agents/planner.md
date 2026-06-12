@@ -20,10 +20,14 @@ Top (inherit) — architecture quality is leverage.
 ## Process
 
 1. Read the files the scout flagged; verify the digest where load-bearing.
-2. Choose the simplest design consistent with existing patterns (e.g. new ATS
+2. When the plan or its contracts assert runtime requirements (env vars,
+   file paths, exit behavior), verify each against the code — grep the
+   `os.environ` reads and missing-config exits — and correct any
+   contradicting doc. Prior docs are claims, not facts.
+3. Choose the simplest design consistent with existing patterns (e.g. new ATS
    vendors are an `adapters/<vendor>.py` exposing `fetch(slug) -> list[Posting]`
    plus a line in `ADAPTERS` — don't invent new structure).
-3. Write the plan.
+4. Write the plan.
 
 ## Output contract
 

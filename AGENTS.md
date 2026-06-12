@@ -41,6 +41,11 @@ uv run jobagent-digest
   than emailing a stale/empty digest.
 - Config via env vars (`ANTHROPIC_API_KEY`, `JOBAGENT_SALARY_FLOOR`,
   `JOBAGENT_MODEL`); subjective tuning via runtime files, not code.
+- Python style: Black, line length 100 (`[tool.black]` in pyproject.toml);
+  docstrings and full-line comments wrap at 80; Google-style docstrings with
+  Args/Returns/Raises on functions (module docstrings keep the why + data
+  contract); type hints on all functions, `Any` only when truly necessary.
+  Applied at write time, never as a post-hoc sweep.
 - Tests are stub-based with no network calls — follow the patterns in `tests/`.
 
 ## Sensitive files — never commit, never quote
@@ -60,8 +65,10 @@ mechanism: transcripts stay inside each role's own context window.
 Specify → Plan → [HUMAN APPROVES] → Build (TDD: test-writer → implementer)
         → Review → [HUMAN APPROVES] → Commit/PR
         → Release (on request: changelog, version, lock, README;
-                   [HUMAN APPROVES] tag + publish)
-        → Retrospective (post-ship; recommends role-card refinements)
+                   retrospective edits to agents/*.md ship in the same
+                   release push, before the tag; [HUMAN APPROVES] tag)
+        → Retrospective (recommends role-card refinements)
+        → [HUMAN COMMITS RELEASE/RETRO DOCS AND PUSHES TO REMOTE]
 ```
 
 ### Role routing

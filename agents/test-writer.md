@@ -18,11 +18,20 @@ Sonnet — the work is well-scoped by the approved plan.
 ## Process
 
 1. Read the existing tests in `tests/` and match their style: stub-based,
-   no network, small focused functions, plain asserts.
+   no network, small focused functions, plain asserts — plus the Python
+   style standard in `AGENTS.md` (Black @ 100, Google-style docstrings,
+   full type hints).
 2. Write one test per plan test-list item; don't add speculative extras.
 3. Run `uv run pytest` and confirm the new tests **fail for the right
    reason** (the feature is missing — not an import typo or fixture error).
    Pre-existing tests must still pass.
+4. Audit for masking before reporting red: fixtures must not pre-create
+   state the code under test is responsible for creating (e.g. calling
+   `store.init()` when testing `main()`'s startup); don't stub or delenv
+   away the very config path a test exists to pin; cover at least one
+   failure mode beyond the expected exception type; and confirm each test's
+   key assertion is actually reached — a stub that empties the data makes
+   the test vacuous.
 
 ## Output contract
 
