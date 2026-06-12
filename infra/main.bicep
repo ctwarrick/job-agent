@@ -38,8 +38,23 @@ param cronExpression string = '0,20,40 11 * * *'
 @description('IANA timezone passed through to the app as JOBAGENT_TZ for digest-date computation.')
 param tz string = 'America/Los_Angeles'
 
-@description('Per-run cap on LLM scoring batches, passed through as JOBAGENT_MAX_LLM_CALLS.')
-param maxLlmCalls int = 10
+@description('Per-run cap on postings scored before a clean stop, as JOBAGENT_MAX_POSTINGS_PER_RUN.')
+param maxPostingsPerRun int = 200
+
+@description('Per-run estimated USD spend cap before a clean stop, as JOBAGENT_MAX_COST_PER_RUN (string: Bicep has no float).')
+param maxCostPerRun string = '5.00'
+
+@description('Per-MTok input price for the cost cap + SCORE_SUMMARY estimate, as JOBAGENT_PRICE_INPUT (claude-sonnet-4-6 rate).')
+param priceInput string = '3'
+
+@description('Per-MTok output price, as JOBAGENT_PRICE_OUTPUT (claude-sonnet-4-6 rate).')
+param priceOutput string = '15'
+
+@description('Per-MTok cache-write price, as JOBAGENT_PRICE_CACHE_WRITE (claude-sonnet-4-6 rate).')
+param priceCacheWrite string = '3.75'
+
+@description('Per-MTok cache-read price, as JOBAGENT_PRICE_CACHE_READ (claude-sonnet-4-6 rate).')
+param priceCacheRead string = '0.30'
 
 @description('Retention window in days for unloved postings, passed through as JOBAGENT_RETENTION_DAYS.')
 param retentionDays int = 60
@@ -307,8 +322,28 @@ resource job 'Microsoft.App/jobs@2024-03-01' = {
               value: model
             }
             {
-              name: 'JOBAGENT_MAX_LLM_CALLS'
-              value: string(maxLlmCalls)
+              name: 'JOBAGENT_MAX_POSTINGS_PER_RUN'
+              value: string(maxPostingsPerRun)
+            }
+            {
+              name: 'JOBAGENT_MAX_COST_PER_RUN'
+              value: maxCostPerRun
+            }
+            {
+              name: 'JOBAGENT_PRICE_INPUT'
+              value: priceInput
+            }
+            {
+              name: 'JOBAGENT_PRICE_OUTPUT'
+              value: priceOutput
+            }
+            {
+              name: 'JOBAGENT_PRICE_CACHE_WRITE'
+              value: priceCacheWrite
+            }
+            {
+              name: 'JOBAGENT_PRICE_CACHE_READ'
+              value: priceCacheRead
             }
             {
               name: 'JOBAGENT_RETENTION_DAYS'

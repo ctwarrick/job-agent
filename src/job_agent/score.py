@@ -257,9 +257,7 @@ def _cost_usd(
     price_cache_write = float(
         os.environ.get("JOBAGENT_PRICE_CACHE_WRITE", DEFAULT_PRICE_CACHE_WRITE)
     )
-    price_cache_read = float(
-        os.environ.get("JOBAGENT_PRICE_CACHE_READ", DEFAULT_PRICE_CACHE_READ)
-    )
+    price_cache_read = float(os.environ.get("JOBAGENT_PRICE_CACHE_READ", DEFAULT_PRICE_CACHE_READ))
     return (
         input_tokens * price_input
         + output_tokens * price_output

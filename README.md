@@ -15,10 +15,13 @@ job-agent/
   registry.txt         your target companies -> ATS vendor + slug (git-ignored, personal)
   profile.md           YOUR profile (git-ignored, personal)
   screening_prompt.md  LLM screening prompt (git-ignored, personal)
+  filter.toml          deterministic pre-LLM filter (git-ignored, personal)
+  filter.toml.example  committed template for filter.toml
   src/job_agent/
     schema.py          normalized Posting + dedupe fingerprint
     store.py           SQLite: postings + applications + runs tables
     fetch.py           reads registry, dispatches adapters, upserts
+    filter.py          deterministic pre-LLM gate (denylist/allowlist/age/location)
     score.py           LLM scoring against profile.md + screening_prompt.md
     digest.py          emails the daily digest
     adapters/
@@ -52,6 +55,15 @@ Optional env vars:
   `America/Los_Angeles`).
 - `JOBAGENT_MODEL` — Anthropic model used for scoring (default
   `claude-sonnet-4-6`).
+- `JOBAGENT_MAX_POSTINGS_PER_RUN` / `JOBAGENT_MAX_COST_PER_RUN` — per-run
+  guardrails for the score stage (defaults `200` postings and `5.00` USD
+  estimated). The run stops cleanly at whichever cap is hit first, logs
+  `SCORE_CAP_STOP`, exits 0, and the next run resumes the remainder.
+- `JOBAGENT_PRICE_INPUT` / `JOBAGENT_PRICE_OUTPUT` /
+  `JOBAGENT_PRICE_CACHE_WRITE` / `JOBAGENT_PRICE_CACHE_READ` — per-MTok prices
+  used for the cost cap and the `SCORE_SUMMARY` estimate (defaults `3`, `15`,
+  `3.75`, `0.30` — the `claude-sonnet-4-6` rates). Override when the model or
+  pricing changes.
 - `JOBAGENT_FORCE` — set to `1` to re-run a digest_date that already
   succeeded today.
 - `DIGEST_MIN_SKILLS` / `DIGEST_MAX_RISK` — digest thresholds (defaults `6`
@@ -110,12 +122,17 @@ Write `src/job_agent/adapters/<vendor>.py` exposing
 The scorer needs no changes.
 
 ## Tuning the scorer
-Everything subjective lives in two runtime files the scorer reads — no code
+Everything subjective lives in three runtime files the scorer reads — no code
 changes needed:
 - `profile.md` — the candidate profile (who you are, what you want).
 - `screening_prompt.md` — the LLM system prompt / screening instructions.
+- `filter.toml` — the deterministic pre-LLM gate (denylist / advisory
+  allowlist / age / location) that drops obviously-irrelevant postings before
+  they cost a Claude call. Copy the committed `filter.toml.example` to
+  `filter.toml` and tune it; the score stage fails loud if it is missing or
+  malformed.
 
-Both contain personal data and are git-ignored. To re-score from scratch after
-editing either:
-  sqlite3 jobs.db "UPDATE postings SET skills_fit=NULL"
+All three contain personal data and are git-ignored (only `filter.toml.example`
+is committed). To re-score from scratch after editing any of them:
+  sqlite3 jobs.db "UPDATE postings SET skills_fit=NULL, filter_reason=NULL"
 then `uv run jobagent-score` again.

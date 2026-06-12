@@ -92,9 +92,7 @@ def test_age_gate_fails_open_on_missing_posted_at() -> None:
 
 
 def test_age_gate_fails_open_on_unparseable_posted_at() -> None:
-    posting = _posting(
-        title="Software Engineer", location="Remote", posted_at="not-a-real-date"
-    )
+    posting = _posting(title="Software Engineer", location="Remote", posted_at="not-a-real-date")
     assert job_filter.classify(posting, CRITERIA) is None
 
 
@@ -192,8 +190,7 @@ def test_load_criteria_raises_on_missing_file(tmp_path: Path) -> None:
 
 def test_load_criteria_raises_on_non_int_max_days(tmp_path: Path) -> None:
     toml_path = tmp_path / "filter.toml"
-    toml_path.write_text(
-        """
+    toml_path.write_text("""
 [denylist]
 title_keywords = ["sales"]
 
@@ -207,8 +204,7 @@ max_days = "thirty"
 remote_ok = true
 regions = []
 metros = []
-"""
-    )
+""")
 
     with pytest.raises(Exception):
         job_filter.load_criteria(str(toml_path))
@@ -216,8 +212,7 @@ metros = []
 
 def test_load_criteria_raises_on_non_list_keyword_field(tmp_path: Path) -> None:
     toml_path = tmp_path / "filter.toml"
-    toml_path.write_text(
-        """
+    toml_path.write_text("""
 [denylist]
 title_keywords = "sales"
 
@@ -231,8 +226,7 @@ max_days = 30
 remote_ok = true
 regions = []
 metros = []
-"""
-    )
+""")
 
     with pytest.raises(Exception):
         job_filter.load_criteria(str(toml_path))

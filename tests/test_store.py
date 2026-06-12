@@ -228,8 +228,7 @@ def test_scorable_excludes_filtered_row_but_unscored_still_includes_it(
     store.upsert_postings([posting], db)
     with store.connect(db) as conn:
         conn.execute(
-            "UPDATE postings SET filter_reason='function_denylist:sales' "
-            "WHERE fingerprint=?",
+            "UPDATE postings SET filter_reason='function_denylist:sales' " "WHERE fingerprint=?",
             (posting.fingerprint,),
         )
 
@@ -249,9 +248,7 @@ def test_record_filter_rejections_sets_reasons(tmp_path: Path) -> None:
     untouched = _posting(external_id="2", title="Designer", url="https://example.com/2")
     store.upsert_postings([rejected, untouched], db)
 
-    store.record_filter_rejections(
-        [(rejected.fingerprint, "function_denylist:sales")], path=db
-    )
+    store.record_filter_rejections([(rejected.fingerprint, "function_denylist:sales")], path=db)
 
     with store.connect(db) as conn:
         rejected_row = conn.execute(

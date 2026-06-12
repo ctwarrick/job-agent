@@ -25,8 +25,9 @@ For background, see:
 - `az` CLI logged in as the maintainer (`az login`), with the Bicep CLI
   available (`az bicep install` if needed)
 - Docker, to build the image locally
-- Local copies of `profile.md`, `screening_prompt.md`, `registry.txt`
-  (git-ignored, never referenced by content below — file names only)
+- Local copies of `profile.md`, `screening_prompt.md`, `registry.txt`, and
+  `filter.toml` (git-ignored, never referenced by content below — file names
+  only; `filter.toml` starts as a copy of the committed `filter.toml.example`)
 - Anthropic API key and SMTP credentials at hand (values are typed directly
   into `az keyvault secret set` commands, never written to disk or committed)
 
@@ -116,10 +117,10 @@ pass returns the full deployment outputs, including `storageAccountName` and
 
 ## 5. Upload the runtime files
 
-The job reads `profile.md`, `screening_prompt.md`, and `registry.txt` from the
-Azure Files share at `/data` (`JOBAGENT_DATA_DIR=/data`). Upload your local,
-git-ignored copies by **file name only** — never paste their contents into a
-shell command, this doc, or any agent transcript:
+The job reads `profile.md`, `screening_prompt.md`, `registry.txt`, and
+`filter.toml` from the Azure Files share at `/data` (`JOBAGENT_DATA_DIR=/data`).
+Upload your local, git-ignored copies by **file name only** — never paste their
+contents into a shell command, this doc, or any agent transcript:
 
 ```bash
 SHARE=<file-share-name-from-output>
@@ -127,10 +128,14 @@ SHARE=<file-share-name-from-output>
 az storage file upload --account-name "$STORAGE_ACCOUNT" --share-name "$SHARE" --source profile.md
 az storage file upload --account-name "$STORAGE_ACCOUNT" --share-name "$SHARE" --source screening_prompt.md
 az storage file upload --account-name "$STORAGE_ACCOUNT" --share-name "$SHARE" --source registry.txt
+az storage file upload --account-name "$STORAGE_ACCOUNT" --share-name "$SHARE" --source filter.toml
 ```
 
+The score stage fails loud (`sys.exit`) if `filter.toml` is missing or
+malformed, so this upload is required, not optional.
+
 This is the **single sanctioned recurring manual operation** in production —
-re-run it whenever any of these three files changes (US4).
+re-run it whenever any of these four files changes (US4).
 
 ## 6. Manual smoke run
 

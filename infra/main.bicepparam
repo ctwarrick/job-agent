@@ -16,5 +16,6 @@ param location = 'westus2'
 param namePrefix = 'jobagent'
 param cronExpression = '0,20,40 11 * * *'
 param tz = 'America/Los_Angeles'
-param maxLlmCalls = 10
+param maxPostingsPerRun = 200
+param maxCostPerRun = '5.00'
 param retentionDays = 60
