@@ -1,36 +1,33 @@
 <!--
 Sync Impact Report
-- Version change: 1.0.0 (draft) → 1.0.0 (draft amended prior to ratification; no bump —
-  semantic versioning applies from first ratification)
+- Version change: 1.0.0 → 1.1.0
+- Bump rationale: MINOR — new principle added (VII. LLM Spend Efficiency),
+  concretizing Principle I's bounded-LLM-spend requirement; no principle removed
+  or redefined.
 - Modified principles:
-  - I. Cost Discipline — added $50/month all-in ceiling across providers, dual-bill
-    monitoring (Azure + Anthropic), per-run LLM call bound, maintainer-approved override
-  - II. Cloud-Native Scheduled Operation — added infrastructure-as-code requirement;
-    carved out the manual, private update path for personal runtime files; delivery
-    target now a configurable 06:00 America/Los_Angeles default
-  - III. Test-First Delivery — clarified solo-dev flow: agents implement, the maintainer
-    alone pushes to main, GitHub Actions tests then deploys
-  - V. Fail Loud, Fail Visibly — split configuration failures (fail hard) from transient
-    per-source failures (degrade, deliver, report); failure alerts must not depend on
-    the digest email path; logging sufficient for morning-after diagnosis
-- Modified sections:
-  - Operational Constraints — production storage method deliberately unspecified
-    (selected at plan time); schedule default 06:00 America/Los_Angeles, configurable;
-    two-month data-retention default, configurable
-  - Development Workflow & Quality Gates — division of control between agent fleet,
-    maintainer, and CI made explicit
-- Added sections: none
+  - I. Cost Discipline — LLM-spend bullet now cross-references Principle VII for the
+    concrete mechanics (deterministic pre-filtering, prompt caching, per-run cap,
+    cost logging)
+- Added sections:
+  - VII. LLM Spend Efficiency (NON-NEGOTIABLE) — filter before the LLM, cache the
+    static prefix, configurable per-run budget cap, per-run cost observability
 - Removed sections: none
+- Motivation: the initial cold-start scoring run cost $6.12 for 366 of 1,285
+  postings (~$21.5 full backlog), recurring per newly added company in proportion
+  to its board size; this surfaced that Principle I's "upper bound on LLM calls"
+  was ungoverned in its mechanics and unenforced in code.
 - Templates:
-  - ✅ .specify/templates/plan-template.md — compatible; Constitution Check should test
-    the cost ceiling (I), IaC (II), and simplicity (IV)
+  - ✅ .specify/templates/plan-template.md — Constitution Check is generic
+    ("[Gates determined based on constitution file]"); picks up VII automatically
   - ✅ .specify/templates/spec-template.md — no constitution-dependent content
   - ✅ .specify/templates/tasks-template.md — no constitution-dependent content
-  - ✅ AGENTS.md / CLAUDE.md — consistent; no edits required
+  - ✅ AGENTS.md / CLAUDE.md — consistent (VII aligns with config-via-env,
+    fail-loud, and runtime-file tuning); no edits required
 - Follow-up TODOs:
+  - Concrete pre-filter criteria (buckets / title keywords / location / seniority /
+    posting age / salary floor) are deferred to a forthcoming /speckit-specify +
+    /speckit-clarify, not encoded here.
   - Azure tenant ID remains deployment configuration; never committed.
-  - Production storage service and the runtime-file delivery mechanism are deliberate
-    open questions for /speckit-plan.
 -->
 
 # job-agent Constitution
@@ -51,7 +48,8 @@ choice MUST minimize recurring cost:
 - LLM spend MUST be bounded: only unscored postings are sent for scoring, batching is
   preferred, the model is selectable via configuration (`JOBAGENT_MODEL`), and each
   run MUST enforce an upper bound on LLM calls so a defect cannot silently burn
-  budget.
+  budget. The concrete mechanics of bounded LLM spend — deterministic pre-filtering,
+  prompt caching, per-run caps, and cost logging — are governed by Principle VII.
 - Spend MUST be monitored where it is billed. An Azure budget alert alone is not
   sufficient — LLM usage is billed by Anthropic, outside Azure's visibility — so both
   bills are watched.
@@ -149,6 +147,36 @@ morning-coffee investigation, and the logs must be able to answer it.
 Rationale: the repository is public-remote; the personal data that makes the agent
 useful is exactly the data that must never leave the runtime environment.
 
+### VII. LLM Spend Efficiency (NON-NEGOTIABLE)
+
+Any pipeline stage that calls the LLM (today, scoring) MUST treat model tokens as the
+scarcest resource and spend them only on judgments a cheaper mechanism cannot make.
+This principle concretizes Principle I's requirement that LLM spend be bounded.
+
+- **Filter before you spend.** Deterministic, zero-cost gates (target buckets / title
+  keywords, location, seniority, posting age, salary floor) MUST run before the LLM,
+  so the model only judges plausible matches. The LLM is for nuanced judgment, never
+  for first-pass elimination of obviously-irrelevant rows. The concrete filter
+  criteria are defined per feature via `/speckit-specify` and tuned through runtime
+  files (Principle IV), not hardcoded.
+- **Cache the static prefix.** Content identical across calls within a run — the
+  candidate profile and the screening prompt — MUST use prompt caching
+  (`cache_control`) rather than being re-sent on every batch.
+- **Budget guardrail.** Each run MUST enforce a configurable cap — maximum postings
+  scored and/or maximum estimated dollars per run — and stop loudly (Principle V)
+  rather than exceed it. This is the enforceable form of Principle I's "upper bound on
+  LLM calls."
+- **Cost observability.** Each run MUST log its per-run token usage and estimated cost
+  so the Anthropic bill (Principle I's dual-bill monitoring) can be reconciled from
+  logs without re-running. Caps and pricing inputs are environment-configurable,
+  consistent with config-via-env-var and fail-loud conventions.
+
+Rationale: a fresh board — or a newly added company — presents its entire backlog as
+unscored at once, so a single cold-start can cost more than a month of steady-state
+digests. A spend ceiling alone reacts after the money is gone; efficiency mechanics
+(pre-filtering, caching, a hard per-run cap) keep the bill proportionate to the value
+delivered, before the call is made.
+
 ## Operational Constraints
 
 - **Language/tooling**: Python ≥ 3.12, `uv` for dependency and script management,
@@ -197,4 +225,4 @@ useful is exactly the data that must never leave the runtime environment.
   independent review before commit. Deviations MUST be justified in the plan's
   Complexity Tracking table or rejected.
 
-**Version**: 1.0.0 | **Ratified**: 2026-06-10 | **Last Amended**: 2026-06-10
+**Version**: 1.1.0 | **Ratified**: 2026-06-10 | **Last Amended**: 2026-06-12
