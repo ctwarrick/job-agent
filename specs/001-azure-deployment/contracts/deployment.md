@@ -17,7 +17,8 @@ Binds `infra/main.bicep` + `infra/main.bicepparam`, `scripts/bootstrap.sh`, and
 | `smsCountryCode` + `smsPhone` | supplied at deploy time | action-group SMS receiver — **never committed** (see below) |
 | `budgetAmount` | `50` | `Microsoft.Consumption/budgets`, alerts at 50% / 80% |
 | `imageTag` | git SHA | set by CI on each deploy |
-| `maxLlmCalls` | e.g. `10` | passed through as `JOBAGENT_MAX_LLM_CALLS` |
+| `maxPostingsPerRun` | `200` | passed through as `JOBAGENT_MAX_POSTINGS_PER_RUN` — per-run scoring cap (Feature 002; supersedes the never-implemented `maxLlmCalls`/`JOBAGENT_MAX_LLM_CALLS`, see [002 runtime-config](../../002-scoring-spend-efficiency/contracts/runtime-config.md)) |
+| `maxCostPerRun` | `'5.00'` | passed through as `JOBAGENT_MAX_COST_PER_RUN` — per-run estimated-dollar cap (Feature 002) |
 | `retentionDays` | `60` | passed through as `JOBAGENT_RETENTION_DAYS` |
 
 ### Never-committed parameters
@@ -145,7 +146,7 @@ az containerapp job start -n <job> -g <rg>                       # respects skip
 az containerapp job start -n <job> -g <rg> \
   --env-vars JOBAGENT_FORCE=1                                    # force full re-run
 az containerapp job start -n <job> -g <rg> \
-  --env-vars JOBAGENT_FORCE=1 JOBAGENT_MAX_LLM_CALLS=40          # first-run backlog backfill
+  --env-vars JOBAGENT_FORCE=1 JOBAGENT_MAX_POSTINGS_PER_RUN=1000 # first-run backlog backfill
 ```
 
 RBAC-gated by `microsoft.app/jobs/start/action` — held only by the maintainer per

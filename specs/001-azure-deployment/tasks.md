@@ -162,17 +162,17 @@ identifiable from logs alone (quickstart.md §US3).
 
 ### Tests for User Story 3 (write first, observe red)
 
-- [ ] T028 [P] [US3] Write failing tests in `tests/test_fetch.py`: a failing adapter does not kill the run; failures are captured as `{source, company_slug, error}` records returned/exposed for the run row instead of stderr-only printing (FR-005)
-- [ ] T029 [P] [US3] Write failing tests in `tests/test_score.py`: scoring stops after `JOBAGENT_MAX_LLM_CALLS` batches, remaining postings stay `skills_fit IS NULL` for the next run, and the cap-hit/degradation outcome is reported to the caller (FR-013, FR-020) _(⚠️ 2026-06-13 SUPERSEDED: cap landed in Feature 002 via `JOBAGENT_MAX_POSTINGS_PER_RUN`/`JOBAGENT_MAX_COST_PER_RUN`; only the FR-020 digest degradation report stays open — see Reconciliation note)_
-- [ ] T030 [P] [US3] Write failing tests in `tests/test_digest.py`: digest body (text + HTML) includes a visible degraded-source notice naming each failed source and a scoring-degradation notice when unscored postings remain (FR-005, FR-020)
+- [x] T028 [P] [US3] Write failing tests in `tests/test_fetch.py`: a failing adapter does not kill the run; failures are captured as `{source, company_slug, error}` records returned/exposed for the run row instead of stderr-only printing (FR-005)
+- [x] T029 [P] [US3] Write failing tests in `tests/test_score.py`: scoring stops after `JOBAGENT_MAX_LLM_CALLS` batches, remaining postings stay `skills_fit IS NULL` for the next run, and the cap-hit/degradation outcome is reported to the caller (FR-013, FR-020) _(⚠️ 2026-06-13 SUPERSEDED: cap landed in Feature 002 via `JOBAGENT_MAX_POSTINGS_PER_RUN`/`JOBAGENT_MAX_COST_PER_RUN`; residual FR-020 report shipped in US3a — e501b48/9704dd9)_
+- [x] T030 [P] [US3] Write failing tests in `tests/test_digest.py`: digest body (text + HTML) includes a visible degraded-source notice naming each failed source and a scoring-degradation notice when unscored postings remain (FR-005, FR-020)
 
 ### Implementation for User Story 3
 
-- [ ] T031 [US3] Rework `src/job_agent/fetch.py` to collect per-source failure records and per-source outcome logging (vendor/slug, error text, counts) while continuing the run — makes T028 green
-- [ ] T032 [P] [US3] Add the `JOBAGENT_MAX_LLM_CALLS` cap to `src/job_agent/score.py`: stop after N batches, report scored/remaining counts and degradation status — makes T029 green _(⚠️ 2026-06-13 SUPERSEDED by Feature 002's caps; retarget remaining work here to the FR-020 digest report under T033/T034)_
-- [ ] T033 [US3] Add degradation notices to `src/job_agent/digest.py` rendering (failed sources by name; scoring backlog note) — makes T030 green; depends on T031, T032
-- [ ] T034 [US3] Wire degradation through `main.py`: persist `failed_sources` JSON on the run row, set outcome `degraded` when sources failed or the cap was hit, include a human-readable `detail` summary (data-model.md `runs`) — depends on T031–T033
-- [ ] T035 [US3] Run `uv run pytest` — full suite green for the US3 checkpoint
+- [x] T031 [US3] Rework `src/job_agent/fetch.py` to collect per-source failure records and per-source outcome logging (vendor/slug, error text, counts) while continuing the run — makes T028 green
+- [x] T032 [P] [US3] Add the `JOBAGENT_MAX_LLM_CALLS` cap to `src/job_agent/score.py`: stop after N batches, report scored/remaining counts and degradation status — makes T029 green _(⚠️ 2026-06-13 SUPERSEDED by Feature 002's caps; residual FR-020 score-result reporting shipped in US3a — e501b48/9704dd9)_
+- [x] T033 [US3] Add degradation notices to `src/job_agent/digest.py` rendering (failed sources by name; scoring backlog note) — makes T030 green; depends on T031, T032
+- [x] T034 [US3] Wire degradation through `main.py`: persist `failed_sources` JSON on the run row, set outcome `degraded` when sources failed or the cap was hit, include a human-readable `detail` summary (data-model.md `runs`) — depends on T031–T033
+- [x] T035 [US3] Run `uv run pytest` — full suite green for the US3 checkpoint
 - [ ] T036 [US3] Add alerting to `infra/main.bicep`: action group with email + SMS receivers (params `alertEmail`, `smsCountryCode`, `smsPhone`, supplied at deploy time only); scheduled query alert rule (30-min evaluation) over `ContainerAppConsoleLogs_CL` with missed-deadline semantics — fires only when local time in `tz` is past the delivery deadline and no `RUN_SUCCESS digest_date=<today's local date>` exists, DST-correct, self-clearing (contracts/deployment.md resource inventory; ⚠️ marker format is a coupled contract with `main.py` — see contracts/runtime-config.md) — depends on T022
 - [ ] T037 [US3] **Maintainer validation** (requires Azure): quickstart.md §US3 — **required** alert drill (break a secret or skip a night; both email and SMS arrive by ~06:30, SC-004); on-demand trigger `az containerapp job start` no-ops when today succeeded and runs fully with `--env-vars JOBAGENT_FORCE=1` (FR-019); bogus-slug degraded digest names the source; each cause diagnosable from retained logs alone (SC-005)
 
