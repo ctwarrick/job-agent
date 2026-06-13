@@ -106,3 +106,10 @@ def test_main_returns_empty_list_when_all_sources_succeed(monkeypatch) -> None:
     monkeypatch.setattr(fetch.store, "upsert_postings", lambda *a, **k: 0)
 
     assert fetch.main() == []
+
+
+def test_cli_discards_return_value(monkeypatch) -> None:
+    """jobagent-fetch (fetch:_cli) must return None so sys.exit(_cli()) exits 0
+    on success, even though main() returns a (possibly non-empty) failure list."""
+    monkeypatch.setattr(fetch, "main", lambda: [{"source": "x", "company_slug": "y", "error": "z"}])
+    assert fetch._cli() is None

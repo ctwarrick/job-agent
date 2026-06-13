@@ -85,5 +85,16 @@ def main() -> list[dict]:
     return failures
 
 
-if __name__ == "__main__":
+def _cli() -> None:
+    """Console-script entry point (jobagent-fetch).
+
+    Runs the stage and discards main()'s return value (the per-source failure
+    records, which exist for in-process orchestration by main.py) so a
+    successful run exits 0: the hatchling wrapper does ``sys.exit(main())`` and
+    ``sys.exit()`` of a non-None, non-int object exits 1.
+    """
     main()
+
+
+if __name__ == "__main__":
+    _cli()

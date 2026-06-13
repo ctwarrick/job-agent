@@ -70,15 +70,18 @@ def _degradation_summary(failed_sources: list[dict], scoring: dict) -> str | Non
         A summary like "2 sources failed; 919 unscored (cap=cost)", or None
         when the run was clean (no failed sources, nothing left unscored).
     """
+    facts = digest._degradation_facts(failed_sources, scoring)
+    if facts is None:
+        return None
     parts = []
-    n = len(failed_sources)
+    n = facts["source_count"]
     if n:
         parts.append(f"{n} source{'s' if n != 1 else ''} failed")
-    remaining = scoring["remaining"]
+    remaining = facts["remaining"]
     if remaining > 0:
-        cap = scoring.get("cap_reason")
+        cap = facts["cap_reason"]
         parts.append(f"{remaining} unscored" + (f" (cap={cap})" if cap else ""))
-    return "; ".join(parts) if parts else None
+    return "; ".join(parts)
 
 
 def main() -> None:

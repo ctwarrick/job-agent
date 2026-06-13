@@ -13,9 +13,9 @@ dependencies = [
 ]
 
 [project.scripts]
-jobagent-fetch = "job_agent.fetch:main"
-jobagent-score = "job_agent.score:main"
-jobagent-digest = "job_agent.digest:main"
+jobagent-fetch = "job_agent.fetch:_cli"
+jobagent-score = "job_agent.score:_cli"
+jobagent-digest = "job_agent.digest:_cli"
 
 [build-system]
 requires = ["hatchling"]

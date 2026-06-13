@@ -1184,3 +1184,8 @@ def test_main_returns_remaining_when_all_batches_fail(tmp_path: Path, monkeypatc
     assert result["scored"] == 0
     assert result["remaining"] == 7
     assert result["cap_reason"] is None
+
+
+def test_cli_discards_return_value(monkeypatch) -> None:
+    monkeypatch.setattr(score, "main", lambda: {"scored": 0, "remaining": 0, "cap_reason": None})
+    assert score._cli() is None

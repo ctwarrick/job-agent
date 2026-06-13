@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 
 import main
-from job_agent import store
+from job_agent import digest, store
 
 DIGEST_DATE = "2026-06-11"
 
@@ -82,7 +82,18 @@ def _patch_stages(
 
     monkeypatch.setattr(main, "fetch", type("M", (), {"main": staticmethod(fake_fetch)}))
     monkeypatch.setattr(main, "score", type("M", (), {"main": staticmethod(fake_score)}))
-    monkeypatch.setattr(main, "digest", type("M", (), {"main": staticmethod(fake_digest)}))
+    monkeypatch.setattr(
+        main,
+        "digest",
+        type(
+            "M",
+            (),
+            {
+                "main": staticmethod(fake_digest),
+                "_degradation_facts": staticmethod(digest._degradation_facts),
+            },
+        ),
+    )
     return calls
 
 

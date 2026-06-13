@@ -351,3 +351,8 @@ def test_render_html_unaffected_when_no_degradation() -> None:
     }
     html = _render_html(groups)
     assert "Engineer" in html
+
+
+def test_cli_discards_return_value(monkeypatch) -> None:
+    monkeypatch.setattr(digest, "main", lambda: True)
+    assert digest._cli() is None

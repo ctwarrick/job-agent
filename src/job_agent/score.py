@@ -445,5 +445,16 @@ def main() -> dict:
     return {"scored": scored, "remaining": remaining, "cap_reason": cap_reason}
 
 
-if __name__ == "__main__":
+def _cli() -> None:
+    """Console-script entry point (jobagent-score).
+
+    Runs the stage and discards main()'s return value (the degradation signal
+    dict, which exists for in-process orchestration by main.py) so a
+    successful run exits 0: the hatchling wrapper does ``sys.exit(main())`` and
+    ``sys.exit()`` of a non-None, non-int object exits 1.
+    """
     main()
+
+
+if __name__ == "__main__":
+    _cli()

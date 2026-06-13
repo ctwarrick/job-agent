@@ -159,75 +159,102 @@ def _render_html(groups: dict[str, list[dict]]) -> str:
     return "".join(parts)
 
 
-def _degradation_text(failed_sources: list[dict] | None, scoring: dict | None) -> str:
-    """Build the plain-text degraded-run notice, or "" when the run was clean.
+def _degradation_facts(failed_sources: list[dict] | None, scoring: dict | None) -> dict | None:
+    """Select the structured degradation facts shared by the email notice and
+    the run-row detail, or None when the run was clean.
 
-    Names each failed source (FR-005) and reports any scoring backlog
-    (FR-020). The raw adapter error text is deliberately omitted -- it stays in
-    the retained run logs, never in the email payload (A2/FR-007).
+    Centralizing the "which facts and what counts" decision keeps the three
+    renderings (text notice, HTML notice, run-row detail) from drifting -- e.g.
+    a new cap_reason flows to all three without edits.
 
     Args:
         failed_sources: List of {source, company_slug, error} dicts, or None.
-        scoring: The score stage's {scored, remaining, cap_reason} signal, or
-            None.
+        scoring: The score stage's {scored, remaining, cap_reason}, or None.
+
+    Returns:
+        Dict with source_count, names (["source/company_slug", ...]), remaining,
+        cap_reason; or None when nothing degraded.
+    """
+    source_count = len(failed_sources) if failed_sources else 0
+    names = [f"{f['source']}/{f['company_slug']}" for f in (failed_sources or [])]
+    remaining = scoring.get("remaining", 0) if scoring else 0
+    cap_reason = scoring.get("cap_reason") if scoring else None
+    if not source_count and remaining <= 0:
+        return None
+    return {
+        "source_count": source_count,
+        "names": names,
+        "remaining": remaining,
+        "cap_reason": cap_reason,
+    }
+
+
+def _degradation_messages(facts: dict) -> list[str]:
+    """Render the notice's human sentences from facts (shared by text + HTML).
+
+    The sentences are identical between the plain-text and HTML notices; the
+    renderers differ only in escaping and wrapping. Naming each source is
+    permitted (FR-007); the raw adapter error is never included (A2/FR-007).
+
+    Args:
+        facts: The dict from `_degradation_facts`.
+
+    Returns:
+        One sentence per present degradation fact.
+    """
+    messages = []
+    n = facts["source_count"]
+    if n:
+        names = ", ".join(facts["names"])
+        messages.append(
+            f"{n} source{'s' if n != 1 else ''} unreachable; "
+            f"their postings are not included this run: {names}"
+        )
+    remaining = facts["remaining"]
+    if remaining > 0:
+        cap = facts["cap_reason"]
+        suffix = f" (cap={cap})" if cap else ""
+        messages.append(
+            f"{remaining} posting(s) left unscored this run and "
+            f"queued for the next run{suffix}."
+        )
+    return messages
+
+
+def _degradation_text(failed_sources: list[dict] | None, scoring: dict | None) -> str:
+    """Plain-text degraded-run notice, or "" when the run was clean.
+
+    Args:
+        failed_sources: List of {source, company_slug, error} dicts, or None.
+        scoring: The score stage's {scored, remaining, cap_reason}, or None.
 
     Returns:
         A text block ending in a newline, or "" when there is nothing to report.
     """
-    lines = []
-    if failed_sources:
-        names = ", ".join(f"{f['source']}/{f['company_slug']}" for f in failed_sources)
-        n = len(failed_sources)
-        lines.append(
-            f"  • {n} source{'s' if n != 1 else ''} unreachable; "
-            f"their postings are not included this run: {names}"
-        )
-    if scoring and scoring.get("remaining", 0) > 0:
-        remaining = scoring["remaining"]
-        cap = scoring.get("cap_reason")
-        suffix = f" (cap={cap})" if cap else ""
-        lines.append(
-            f"  • {remaining} posting(s) left unscored this run and "
-            f"queued for the next run{suffix}."
-        )
-    if not lines:
+    facts = _degradation_facts(failed_sources, scoring)
+    if facts is None:
         return ""
+    lines = [f"  • {m}" for m in _degradation_messages(facts)]
     return "\n".join(["Degraded run — partial results", "-" * 40, *lines, ""]) + "\n"
 
 
 def _degradation_html(failed_sources: list[dict] | None, scoring: dict | None) -> str:
-    """Build the HTML degraded-run notice, or "" when the run was clean.
+    """HTML degraded-run notice, or "" when the run was clean.
 
-    The HTML counterpart of `_degradation_text`; same source-naming and
-    backlog-reporting rules, same omission of raw error text (A2/FR-007).
+    Escapes each whole message (covers source/company_slug), so a slug with
+    HTML-special chars cannot break out of the markup (A2/FR-007).
 
     Args:
         failed_sources: List of {source, company_slug, error} dicts, or None.
-        scoring: The score stage's {scored, remaining, cap_reason} signal, or
-            None.
+        scoring: The score stage's {scored, remaining, cap_reason}, or None.
 
     Returns:
         An HTML block, or "" when there is nothing to report.
     """
-    items = []
-    if failed_sources:
-        names = ", ".join(escape(f"{f['source']}/{f['company_slug']}") for f in failed_sources)
-        n = len(failed_sources)
-        items.append(
-            f"{n} source{'s' if n != 1 else ''} unreachable; "
-            f"their postings are not included this run: {names}"
-        )
-    if scoring and scoring.get("remaining", 0) > 0:
-        remaining = scoring["remaining"]
-        cap = scoring.get("cap_reason")
-        suffix = f" (cap={escape(str(cap))})" if cap else ""
-        items.append(
-            f"{escape(str(remaining))} posting(s) left unscored this run and "
-            f"queued for the next run{suffix}."
-        )
-    if not items:
+    facts = _degradation_facts(failed_sources, scoring)
+    if facts is None:
         return ""
-    lis = "".join(f"<li>{it}</li>" for it in items)
+    lis = "".join(f"<li>{escape(m)}</li>" for m in _degradation_messages(facts))
     return (
         "<div style='margin:0 0 16px;padding:10px 14px;border-left:3px solid #c80;"
         "background:#fff8e1'>"
@@ -350,5 +377,16 @@ def main(failed_sources: list[dict] | None = None, scoring: dict | None = None) 
     return True
 
 
-if __name__ == "__main__":
+def _cli() -> None:
+    """Console-script entry point (jobagent-digest).
+
+    Runs the stage and discards main()'s return value (a bool indicating
+    confirmed send, which exists for in-process orchestration by main.py) so a
+    successful run exits 0: the hatchling wrapper does ``sys.exit(main())`` and
+    ``sys.exit(True)`` exits 1.
+    """
     main()
+
+
+if __name__ == "__main__":
+    _cli()
