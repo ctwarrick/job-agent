@@ -310,6 +310,10 @@ resource job 'Microsoft.App/jobs@2024-03-01' = {
               secretRef: 'salary-floor'
             }
             {
+              name: 'PYTHONUNBUFFERED'
+              value: '1'
+            }
+            {
               name: 'JOBAGENT_DATA_DIR'
               value: '/data'
             }
