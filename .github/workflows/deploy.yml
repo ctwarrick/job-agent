@@ -79,15 +79,17 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       # imageTag=<sha> matches the tag built above; Bicep composes
-      # `${imageRepository}:${imageTag}`. No --debug, no echoed parameter values
-      # (FR-011). bicepparam carries the non-secret defaults.
+      # `${imageRepository}:${imageTag}`. `--output none` suppresses the result
+      # JSON so the step echoes no parameter values; no --debug (FR-011).
+      # bicepparam carries the non-secret defaults.
       - name: Deploy infrastructure
         run: |
           az deployment group create \
             --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
             --template-file infra/main.bicep \
             --parameters infra/main.bicepparam \
-            --parameters imageTag="${{ github.sha }}"
+            --parameters imageTag="${{ github.sha }}" \
+            --output none
         # TODO(US3 / T036): when alerting lands in infra/main.bicep, pass the
         # action-group receivers from repo secrets (never committed):
         #   --parameters alertEmail="${{ secrets.ALERT_EMAIL }}" \
