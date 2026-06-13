@@ -207,6 +207,29 @@ resource jobKeyVaultSecretsUser 'Microsoft.Authorization/roleAssignments@2022-04
 }
 
 // ---------------------------------------------------------------------------
+// GitHub-OIDC deploy identity (T026, FR-022) — REFERENCE ONLY.
+//
+// This user-assigned identity and its federated credential `github-main`
+// (subject `repo:<owner>/job-agent:ref:refs/heads/main`) are created out-of-band
+// by scripts/bootstrap.sh, NOT by this template. CI authenticates *as* this
+// identity to run `az deployment group create`, so the deployment cannot be what
+// first creates its own login (chicken-and-egg) — and the federated credential
+// must exist before any workflow can obtain a token at all. Declaring it
+// `existing` records it in the IaC (contracts/deployment.md resource inventory:
+// "created by bootstrap, referenced here") and surfaces its client ID. A deploy
+// run before bootstrap fails loud right here, which enforces the documented
+// order. The identity's RG-scoped Contributor + User Access Administrator grant
+// is owned by bootstrap.sh and enumerated in the identity & access matrix.
+// ---------------------------------------------------------------------------
+
+@description('Name of the GitHub-OIDC deploy identity created by scripts/bootstrap.sh (its IDENTITY_NAME default is "<namePrefix>-deploy").')
+param deployIdentityName string = '${namePrefix}-deploy'
+
+resource deployIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' existing = {
+  name: deployIdentityName
+}
+
+// ---------------------------------------------------------------------------
 // Container Apps Job — the pipeline (Schedule trigger)
 // ---------------------------------------------------------------------------
 
@@ -382,5 +405,10 @@ output containerAppsEnvironmentName string = containerAppsEnv.name
 output jobName string = job.name
 output storageAccountName string = storage.name
 output fileShareName string = dataShare.name
+
+// Record as the AZURE_CLIENT_ID GitHub Actions repo secret for CI OIDC login
+// (a client ID is an identifier, not a credential). Resolving this also fails
+// the deploy loudly if scripts/bootstrap.sh has not yet created the identity.
+output deployIdentityClientId string = deployIdentity.properties.clientId
 output keyVaultName string = keyVault.name
 output logAnalyticsWorkspaceName string = logAnalytics.name

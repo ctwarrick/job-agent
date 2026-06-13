@@ -29,6 +29,30 @@ against the maintainer's private copies only.
 
 ---
 
+## Reconciliation note (2026-06-13, post-Feature-002)
+
+Feature 002 (scoring spend efficiency, shipped 0.1.1) landed between US1 and the rest of
+this feature and shifted some ground truth. Corrections:
+
+- **US1 / T024**: the MVP is **built and live in Azure** (`jobagent-rg`, 0.1.1 image) and
+  delivering. T024 stays open only for the *formal* SC-001 evidence — notably the alert
+  drill, which cannot run until US3 alerting exists.
+- **T029 / T032 — SUPERSEDED**: the planned `JOBAGENT_MAX_LLM_CALLS` cap was replaced by
+  Feature 002's `JOBAGENT_MAX_POSTINGS_PER_RUN` + `JOBAGENT_MAX_COST_PER_RUN` (+ price vars).
+  FR-013 (per-run call bound) is **met**; the still-open part is the **FR-020 digest
+  degradation report**, which remains under US3 (T033/T034).
+- **T022 / T023**: `infra/main.bicep` + `main.bicepparam` already carry the Feature-002 env
+  vars (no `MAX_LLM_CALLS`) — effectively done.
+- **T025 (deploy.yml)**: ships **imageTag-only**. The alert params
+  (`alertEmail`/`smsCountryCode`/`smsPhone`) are **deferred to US3** — Bicep has no such
+  params until T036; a marker in the workflow records the follow-up.
+- **T041 / T042 — NOT implemented**: `JOBAGENT_RETENTION_DAYS` is wired into Bicep, but no
+  retention-purge code exists in `store.py`/`main.py` yet. Still open (Polish).
+
+Accompanies `docs/work/us2-cicd/plan.md`.
+
+---
+
 ## Phase 1: Setup (Shared Infrastructure)
 
 **Purpose**: Containerization artifacts both the scheduled job (US1) and CI (US2) need.
@@ -116,7 +140,7 @@ deployment is blocked while the previous version keeps running (quickstart.md §
 *(No pytest tasks: this story is CI/infra wiring with no application-code change; the
 workflow's own `test` job is the relevant gate.)*
 
-- [ ] T025 [P] [US2] Create `.github/workflows/deploy.yml` per contracts/deployment.md GitHub Actions contract: trigger push to `main`; permissions `id-token: write`, `packages: write`; job `test` (`uv sync && uv run pytest`) → job `build` (`needs: test`; docker build; push `ghcr.io/<owner>/job-agent:<sha>` public) → job `deploy` (`needs: build`; `az login` via OIDC federated credential; `az deployment group create` with `imageTag=<sha>` plus `alertEmail`/`smsCountryCode`/`smsPhone` from repo secrets `ALERT_EMAIL`/`SMS_COUNTRY_CODE`/`SMS_PHONE`); no `workflow_dispatch` on build/deploy, no `continue-on-error`, no `--debug`, no echoing of parameter values (FR-008, FR-009, FR-011)
+- [ ] T025 [P] [US2] Create `.github/workflows/deploy.yml` per contracts/deployment.md GitHub Actions contract: trigger push to `main`; permissions `id-token: write`, `packages: write`; job `test` (`uv sync && uv run pytest`) → job `build` (`needs: test`; docker build; push `ghcr.io/<owner>/job-agent:<sha>` public) → job `deploy` (`needs: build`; `az login` via OIDC federated credential; `az deployment group create` with `imageTag=<sha>` plus `alertEmail`/`smsCountryCode`/`smsPhone` from repo secrets `ALERT_EMAIL`/`SMS_COUNTRY_CODE`/`SMS_PHONE`); no `workflow_dispatch` on build/deploy, no `continue-on-error`, no `--debug`, no echoing of parameter values (FR-008, FR-009, FR-011) _(2026-06-13: ships imageTag-only; alert params `alertEmail`/`smsCountryCode`/`smsPhone` deferred to US3/T036 — marker left in the workflow)_
 - [ ] T026 [US2] Add the GitHub-OIDC deploy identity (user-assigned managed identity + federated credential, created by `scripts/bootstrap.sh`) to `infra/main.bicep` as referenced/declared resources per the contracts/deployment.md resource inventory and identity & access matrix (FR-022) — depends on T021
 - [ ] T027 [US2] **Maintainer validation** (requires Azure + GitHub): run `scripts/bootstrap.sh`, set repo secrets `ALERT_EMAIL`/`SMS_COUNTRY_CODE`/`SMS_PHONE`, then validate quickstart.md §US2 — green path live ≤15 min (SC-003), red path blocks deploy with previous image still serving, Actions logs contain no secret values (FR-011)
 
@@ -139,13 +163,13 @@ identifiable from logs alone (quickstart.md §US3).
 ### Tests for User Story 3 (write first, observe red)
 
 - [ ] T028 [P] [US3] Write failing tests in `tests/test_fetch.py`: a failing adapter does not kill the run; failures are captured as `{source, company_slug, error}` records returned/exposed for the run row instead of stderr-only printing (FR-005)
-- [ ] T029 [P] [US3] Write failing tests in `tests/test_score.py`: scoring stops after `JOBAGENT_MAX_LLM_CALLS` batches, remaining postings stay `skills_fit IS NULL` for the next run, and the cap-hit/degradation outcome is reported to the caller (FR-013, FR-020)
+- [ ] T029 [P] [US3] Write failing tests in `tests/test_score.py`: scoring stops after `JOBAGENT_MAX_LLM_CALLS` batches, remaining postings stay `skills_fit IS NULL` for the next run, and the cap-hit/degradation outcome is reported to the caller (FR-013, FR-020) _(⚠️ 2026-06-13 SUPERSEDED: cap landed in Feature 002 via `JOBAGENT_MAX_POSTINGS_PER_RUN`/`JOBAGENT_MAX_COST_PER_RUN`; only the FR-020 digest degradation report stays open — see Reconciliation note)_
 - [ ] T030 [P] [US3] Write failing tests in `tests/test_digest.py`: digest body (text + HTML) includes a visible degraded-source notice naming each failed source and a scoring-degradation notice when unscored postings remain (FR-005, FR-020)
 
 ### Implementation for User Story 3
 
 - [ ] T031 [US3] Rework `src/job_agent/fetch.py` to collect per-source failure records and per-source outcome logging (vendor/slug, error text, counts) while continuing the run — makes T028 green
-- [ ] T032 [P] [US3] Add the `JOBAGENT_MAX_LLM_CALLS` cap to `src/job_agent/score.py`: stop after N batches, report scored/remaining counts and degradation status — makes T029 green
+- [ ] T032 [P] [US3] Add the `JOBAGENT_MAX_LLM_CALLS` cap to `src/job_agent/score.py`: stop after N batches, report scored/remaining counts and degradation status — makes T029 green _(⚠️ 2026-06-13 SUPERSEDED by Feature 002's caps; retarget remaining work here to the FR-020 digest report under T033/T034)_
 - [ ] T033 [US3] Add degradation notices to `src/job_agent/digest.py` rendering (failed sources by name; scoring backlog note) — makes T030 green; depends on T031, T032
 - [ ] T034 [US3] Wire degradation through `main.py`: persist `failed_sources` JSON on the run row, set outcome `degraded` when sources failed or the cap was hit, include a human-readable `detail` summary (data-model.md `runs`) — depends on T031–T033
 - [ ] T035 [US3] Run `uv run pytest` — full suite green for the US3 checkpoint
@@ -201,7 +225,7 @@ re-apply the deployment and confirm a drift-free no-op (quickstart.md §US5).
 visibility (FR-014), log-content guarantees (FR-007) — plus final gates.
 
 - [ ] T041 [P] Write failing tests in `tests/test_store.py`: retention purge deletes postings (and their `applications` rows, same transaction) with status `new`/`dismissed`/`duplicate` and `fetched_at` older than `JOBAGENT_RETENTION_DAYS` (default 60); any other status is never purged (FR-015, data-model.md retention rules)
-- [ ] T042 Implement the retention purge in `src/job_agent/store.py` and invoke it as a pipeline stage in `main.py` (purge stage logged with counts) — makes T041 green
+- [ ] T042 Implement the retention purge in `src/job_agent/store.py` and invoke it as a pipeline stage in `main.py` (purge stage logged with counts) — makes T041 green _(⚠️ 2026-06-13: NOT implemented — `JOBAGENT_RETENTION_DAYS` is wired into Bicep but no purge code exists yet; still open)_
 - [ ] T043 [P] Add `Microsoft.Consumption/budgets` to `infra/main.bicep`: `budgetAmount` param (default 50), alert thresholds at 50% and 80% notifying the action-group/alert email (FR-014; the Anthropic-side console notification is the documented manual step in quickstart.md Bootstrap §6) — depends on T036
 - [ ] T044 Audit per-run log output across `main.py`, `src/job_agent/fetch.py`, `src/job_agent/score.py`, `src/job_agent/digest.py` against the contracts/runtime-config.md minimum-content rules: stage reached, per-source outcomes with error text, fetched/scored/queued counts, fatal failure detail (stage, exception, config key/resource) — and never secret values, runtime-file contents, or scoring rationale (FR-007, SC-005)
 - [ ] T045 Final local gate: `uv run pytest` fully green, then `DIGEST_DRY_RUN=1 uv run python main.py` end-to-end against a local db confirming local development is unchanged (quickstart.md "Local development unchanged")

@@ -201,12 +201,15 @@ bypasses the "already succeeded today" skip but not the in-flight lock.
 
 ## What's next
 
-- **US2** replaces step 2's manual push with a `test → build → deploy` GitHub
-  Actions workflow on every push to `main`.
-- **US3** adds an action group + scheduled query alert rule so a missed
-  morning digest pages the maintainer by ~06:30, instead of being silently
-  noticed (or not) the next time someone checks email.
+- **US2 is implemented** — [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml)
+  replaces steps 2–3's manual build/push/deploy with a `test → build → deploy`
+  GitHub Actions workflow on every push to `main`. Activate it (one-time repo
+  secrets + the validation drill) per [docs/ci-cd.md](ci-cd.md). Until you
+  activate it, this manual path remains the steady state.
+- **US3** (not yet built) adds an action group + scheduled query alert rule so a
+  missed morning digest pages the maintainer by ~06:30, instead of being
+  silently noticed (or not) the next time someone checks email.
 
-Until both land, treat this manual path as the steady state: redeploy by
-repeating steps 2–3 (rebuild/push a new tag, redeploy with the new
-`imageTag`), and watch the inbox each morning.
+Until US2 is activated and US3 lands, treat this manual path as the steady
+state: redeploy by repeating steps 2–3 (rebuild/push a new tag, redeploy with
+the new `imageTag`), and watch the inbox each morning.

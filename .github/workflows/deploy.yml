@@ -1,0 +1,95 @@
+# Push-to-main CI/CD (Feature 001, US2 — FR-008/-009/-011).
+#
+# Every push to `main` runs the test suite first and deploys to Azure only on
+# green. The `needs:` chain (test -> build -> deploy) is the no-override gate:
+# there is no workflow_dispatch on build/deploy, no continue-on-error, and no
+# path to deploy that skips `test`. A failed run is surfaced by GitHub's own
+# run-failure notification (a channel distinct from the overnight alert path);
+# the previously deployed image keeps serving.
+#
+# Contract: specs/001-azure-deployment/contracts/deployment.md "GitHub Actions
+# contract". Auth is OIDC against the deploy identity created by
+# scripts/bootstrap.sh — no cloud credential is stored. Repo config required
+# (set by the maintainer, never committed):
+#   secrets:   AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID
+#   variables: AZURE_RESOURCE_GROUP (e.g. jobagent-rg)
+
+name: Deploy to Azure
+
+on:
+  push:
+    branches: [main]
+
+# Least privilege: OIDC token for Azure login, write for the GHCR push, read
+# for checkout. No other scope is granted.
+permissions:
+  contents: read
+  id-token: write
+  packages: write
+
+# One in-flight deploy of main at a time; never cancel a deploy mid-flight.
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync
+      - name: Run tests
+        run: uv run pytest
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # Image name is pinned to `job-agent` to match `imageRepository` in
+      # infra/main.bicep. The owner is taken from the repo so a fork pushes to
+      # its own GHCR namespace (a forker also points imageRepository at theirs).
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/job-agent:${{ github.sha }}
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      # imageTag=<sha> matches the tag built above; Bicep composes
+      # `${imageRepository}:${imageTag}`. No --debug, no echoed parameter values
+      # (FR-011). bicepparam carries the non-secret defaults.
+      - name: Deploy infrastructure
+        run: |
+          az deployment group create \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --template-file infra/main.bicep \
+            --parameters infra/main.bicepparam \
+            --parameters imageTag="${{ github.sha }}"
+        # TODO(US3 / T036): when alerting lands in infra/main.bicep, pass the
+        # action-group receivers from repo secrets (never committed):
+        #   --parameters alertEmail="${{ secrets.ALERT_EMAIL }}" \
+        #                smsCountryCode="${{ secrets.SMS_COUNTRY_CODE }}" \
+        #                smsPhone="${{ secrets.SMS_PHONE }}"
