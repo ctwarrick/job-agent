@@ -57,6 +57,7 @@ FINAL_ATTEMPT = 3
 
 
 def main() -> None:
+    raise Exception("Test pipeline fails properly")
     store.init()  # ensure schema exists before any run-tracking query
     digest_date = store.digest_date()
     force = os.environ.get("JOBAGENT_FORCE") == "1"
