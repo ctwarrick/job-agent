@@ -15,6 +15,7 @@ specs/001-azure-deployment/contracts/runtime-config.md:
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -36,29 +37,62 @@ def _setup_db(tmp_path: Path, monkeypatch) -> Path:
     return db
 
 
+_CLEAN_SCORE = {"scored": 1, "remaining": 0, "cap_reason": None}
+
+
 def _patch_stages(
-    monkeypatch, *, fetch_ok: bool = True, score_ok: bool = True, digest_returns: bool = True
+    monkeypatch,
+    *,
+    fetch_ok: bool = True,
+    score_ok: bool = True,
+    digest_returns: bool = True,
+    fetch_failures: list[dict] | None = None,
+    score_result: dict | None = None,
+    captured: dict | None = None,
 ) -> list[str]:
+    """Patch the three pipeline stages with the US3a contracts:
+
+    fetch.main() -> list of {source, company_slug, error} (empty when healthy);
+    score.main() -> {scored, remaining, cap_reason};
+    digest.main(failed_sources=, scoring=) -> bool.
+
+    Defaults reproduce a clean, fully-scored success. When `captured` is given,
+    the kwargs digest.main() received are recorded into it.
+    """
     calls = []
 
-    def fake_fetch() -> None:
+    def fake_fetch() -> list[dict]:
         calls.append("fetch")
         if not fetch_ok:
             raise SystemExit("fetch failed")
+        return fetch_failures if fetch_failures is not None else []
 
-    def fake_score() -> None:
+    def fake_score() -> dict:
         calls.append("score")
         if not score_ok:
             raise SystemExit("score failed")
+        return score_result if score_result is not None else dict(_CLEAN_SCORE)
 
-    def fake_digest() -> bool:
+    def fake_digest(failed_sources: list[dict] | None = None, scoring: dict | None = None) -> bool:
         calls.append("digest")
+        if captured is not None:
+            captured["failed_sources"] = failed_sources
+            captured["scoring"] = scoring
         return digest_returns
 
     monkeypatch.setattr(main, "fetch", type("M", (), {"main": staticmethod(fake_fetch)}))
     monkeypatch.setattr(main, "score", type("M", (), {"main": staticmethod(fake_score)}))
     monkeypatch.setattr(main, "digest", type("M", (), {"main": staticmethod(fake_digest)}))
     return calls
+
+
+def _latest_run(db: Path) -> dict:
+    today = store.digest_date()
+    with store.connect(str(db)) as conn:
+        row = conn.execute(
+            "SELECT * FROM runs WHERE digest_date=? ORDER BY id DESC LIMIT 1", (today,)
+        ).fetchone()
+    return dict(row)
 
 
 def _run_main_allow_exit(monkeypatch) -> str | int | None:
@@ -267,12 +301,102 @@ def test_non_systemexit_failure_on_third_attempt_prints_run_failed_final(
     def fake_score() -> None:
         raise RuntimeError("kaboom")
 
-    monkeypatch.setattr(main, "fetch", type("M", (), {"main": staticmethod(lambda: None)}))
+    monkeypatch.setattr(main, "fetch", type("M", (), {"main": staticmethod(lambda: [])}))
     monkeypatch.setattr(main, "score", type("M", (), {"main": staticmethod(fake_score)}))
-    monkeypatch.setattr(main, "digest", type("M", (), {"main": staticmethod(lambda: True)}))
+    monkeypatch.setattr(
+        main,
+        "digest",
+        type("M", (), {"main": staticmethod(lambda failed_sources=None, scoring=None: True)}),
+    )
 
     with pytest.raises(RuntimeError):
         main.main()
 
     out = capsys.readouterr().out
     assert f"RUN_FAILED_FINAL digest_date={today}" in out
+
+
+# --- US3a: degraded outcome wiring (FR-005, FR-020) -------------------------
+
+
+def test_clean_run_sets_success_outcome(tmp_path: Path, monkeypatch) -> None:
+    """No source failures and nothing left unscored -> outcome 'success' with
+    NULL failed_sources/detail."""
+    db = _setup_db(tmp_path, monkeypatch)
+    _patch_stages(monkeypatch)
+
+    _run_main_allow_exit(monkeypatch)
+
+    row = _latest_run(db)
+    assert row["outcome"] == "success"
+    assert row["failed_sources"] is None
+    assert row["detail"] is None
+
+
+def test_source_failure_sets_degraded_outcome(tmp_path: Path, monkeypatch, capsys) -> None:
+    """A failed fetch source -> outcome 'degraded', failed_sources persisted as
+    JSON, detail names the source count, and RUN_SUCCESS still prints (the
+    digest was delivered)."""
+    db = _setup_db(tmp_path, monkeypatch)
+    failures = [{"source": "greenhouse", "company_slug": "acme", "error": "boom timeout"}]
+    _patch_stages(monkeypatch, fetch_failures=failures)
+
+    _run_main_allow_exit(monkeypatch)
+
+    row = _latest_run(db)
+    assert row["outcome"] == "degraded"
+    assert json.loads(row["failed_sources"]) == failures
+    assert "1 source" in row["detail"]
+
+    out = capsys.readouterr().out
+    assert f"RUN_SUCCESS digest_date={store.digest_date()}" in out
+
+
+def test_scoring_backlog_sets_degraded_outcome(tmp_path: Path, monkeypatch) -> None:
+    """Unscored postings remaining (a cap) -> outcome 'degraded', failed_sources
+    NULL, detail states the unscored count and cap reason."""
+    db = _setup_db(tmp_path, monkeypatch)
+    _patch_stages(monkeypatch, score_result={"scored": 10, "remaining": 15, "cap_reason": "cost"})
+
+    _run_main_allow_exit(monkeypatch)
+
+    row = _latest_run(db)
+    assert row["outcome"] == "degraded"
+    assert row["failed_sources"] is None
+    assert "15 unscored" in row["detail"]
+    assert "cap=cost" in row["detail"]
+
+
+def test_both_degradations_recorded_in_detail(tmp_path: Path, monkeypatch) -> None:
+    db = _setup_db(tmp_path, monkeypatch)
+    failures = [
+        {"source": "greenhouse", "company_slug": "acme", "error": "x"},
+        {"source": "lever", "company_slug": "foo", "error": "y"},
+    ]
+    _patch_stages(
+        monkeypatch,
+        fetch_failures=failures,
+        score_result={"scored": 1, "remaining": 919, "cap_reason": "cost"},
+    )
+
+    _run_main_allow_exit(monkeypatch)
+
+    row = _latest_run(db)
+    assert row["outcome"] == "degraded"
+    assert "2 sources" in row["detail"]
+    assert "919 unscored" in row["detail"]
+
+
+def test_degradation_context_passed_to_digest(tmp_path: Path, monkeypatch) -> None:
+    """main.py forwards fetch's failure list and score's signal to
+    digest.main() so the email can render the notice."""
+    _setup_db(tmp_path, monkeypatch)
+    failures = [{"source": "greenhouse", "company_slug": "acme", "error": "boom"}]
+    scoring = {"scored": 10, "remaining": 15, "cap_reason": "cost"}
+    captured: dict = {}
+    _patch_stages(monkeypatch, fetch_failures=failures, score_result=scoring, captured=captured)
+
+    _run_main_allow_exit(monkeypatch)
+
+    assert captured["failed_sources"] == failures
+    assert captured["scoring"] == scoring

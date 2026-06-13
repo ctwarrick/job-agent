@@ -159,6 +159,84 @@ def _render_html(groups: dict[str, list[dict]]) -> str:
     return "".join(parts)
 
 
+def _degradation_text(failed_sources: list[dict] | None, scoring: dict | None) -> str:
+    """Build the plain-text degraded-run notice, or "" when the run was clean.
+
+    Names each failed source (FR-005) and reports any scoring backlog
+    (FR-020). The raw adapter error text is deliberately omitted -- it stays in
+    the retained run logs, never in the email payload (A2/FR-007).
+
+    Args:
+        failed_sources: List of {source, company_slug, error} dicts, or None.
+        scoring: The score stage's {scored, remaining, cap_reason} signal, or
+            None.
+
+    Returns:
+        A text block ending in a newline, or "" when there is nothing to report.
+    """
+    lines = []
+    if failed_sources:
+        names = ", ".join(f"{f['source']}/{f['company_slug']}" for f in failed_sources)
+        n = len(failed_sources)
+        lines.append(
+            f"  • {n} source{'s' if n != 1 else ''} unreachable; "
+            f"their postings are not included this run: {names}"
+        )
+    if scoring and scoring.get("remaining", 0) > 0:
+        remaining = scoring["remaining"]
+        cap = scoring.get("cap_reason")
+        suffix = f" (cap={cap})" if cap else ""
+        lines.append(
+            f"  • {remaining} posting(s) left unscored this run and "
+            f"queued for the next run{suffix}."
+        )
+    if not lines:
+        return ""
+    return "\n".join(["Degraded run — partial results", "-" * 40, *lines, ""]) + "\n"
+
+
+def _degradation_html(failed_sources: list[dict] | None, scoring: dict | None) -> str:
+    """Build the HTML degraded-run notice, or "" when the run was clean.
+
+    The HTML counterpart of `_degradation_text`; same source-naming and
+    backlog-reporting rules, same omission of raw error text (A2/FR-007).
+
+    Args:
+        failed_sources: List of {source, company_slug, error} dicts, or None.
+        scoring: The score stage's {scored, remaining, cap_reason} signal, or
+            None.
+
+    Returns:
+        An HTML block, or "" when there is nothing to report.
+    """
+    items = []
+    if failed_sources:
+        names = ", ".join(escape(f"{f['source']}/{f['company_slug']}") for f in failed_sources)
+        n = len(failed_sources)
+        items.append(
+            f"{n} source{'s' if n != 1 else ''} unreachable; "
+            f"their postings are not included this run: {names}"
+        )
+    if scoring and scoring.get("remaining", 0) > 0:
+        remaining = scoring["remaining"]
+        cap = scoring.get("cap_reason")
+        suffix = f" (cap={escape(str(cap))})" if cap else ""
+        items.append(
+            f"{escape(str(remaining))} posting(s) left unscored this run and "
+            f"queued for the next run{suffix}."
+        )
+    if not items:
+        return ""
+    lis = "".join(f"<li>{it}</li>" for it in items)
+    return (
+        "<div style='margin:0 0 16px;padding:10px 14px;border-left:3px solid #c80;"
+        "background:#fff8e1'>"
+        "<b>Degraded run — partial results</b>"
+        f"<ul style='margin:6px 0 0;padding-left:20px;color:#663'>{lis}</ul>"
+        "</div>"
+    )
+
+
 def _send(subject: str, text: str, html: str) -> None:
     """Send an email via SMTP.
 
@@ -212,14 +290,30 @@ def _mark_sent(fingerprints: list[str], path: str | None = None) -> None:
         )
 
 
-def main() -> bool:
+def main(failed_sources: list[dict] | None = None, scoring: dict | None = None) -> bool:
     """Send the digest (or a no-matches notice) and report confirmed-send status.
 
-    Returns True only once `_send` has returned without raising — callers
-    (main.py) commit digest_sent_at and the run's success outcome strictly
-    after that confirmation (FR-004, data-model.md "Validation rules").
+    When the orchestrator passes degradation context, a notice naming the
+    failed sources (FR-005) and any scoring backlog (FR-020) is prepended to
+    both the text and HTML bodies, including on an otherwise empty day — so the
+    degradation is visible by morning coffee even when no postings qualified.
+    With the default (no) arguments, behavior is unchanged, preserving the
+    standalone `jobagent-digest` entry point.
+
+    Args:
+        failed_sources: Optional list of {source, company_slug, error} dicts
+            from fetch.main().
+        scoring: Optional {scored, remaining, cap_reason} signal from
+            score.main().
+
+    Returns:
+        True only once `_send` has returned without raising — callers (main.py)
+        commit digest_sent_at and the run's outcome strictly after that
+        confirmation (FR-004, data-model.md "Validation rules").
     """
     rows = _fetch_digest()
+    deg_text = _degradation_text(failed_sources, scoring)
+    deg_html = _degradation_html(failed_sources, scoring)
 
     if not rows:
         subject = "Job digest — no new matches"
@@ -230,6 +324,11 @@ def main() -> bool:
         text = _render_text(groups)
         html = _render_html(groups)
         subject = f"Job digest — {len(rows)} new match{'es' if len(rows) != 1 else ''}"
+
+    if deg_text:
+        text = deg_text + "\n" + text
+    if deg_html:
+        html = deg_html + html
 
     if os.environ.get("DIGEST_DRY_RUN") == "1":
         print(subject)

@@ -1090,3 +1090,97 @@ def test_main_score_summary_zero_llm_run(tmp_path: Path, monkeypatch, capsys) ->
     assert "cache_write_tokens=0" in summary_line
     assert "cache_read_tokens=0" in summary_line
     assert "est_cost_usd=0.00" in summary_line
+
+
+# --- US3a: scoring-degradation signal returned to the caller (FR-020) --------
+
+
+def test_main_returns_clean_signal_when_all_scored(tmp_path: Path, monkeypatch) -> None:
+    """With no cap reached, main() returns scored=N / remaining=0 /
+    cap_reason=None so main.py can record a clean success."""
+    _setup_score_env(tmp_path, monkeypatch)
+    reloaded = importlib.reload(score)
+
+    rows = _plausible_rows(3)
+    monkeypatch.setattr(reloaded.store, "scorable", lambda *a, **k: rows)
+    monkeypatch.setattr(reloaded.store, "record_filter_rejections", lambda *a, **k: None)
+    monkeypatch.setattr(reloaded, "_write_scores", lambda scores: None)
+
+    client = _RecordingAnthropic()
+    monkeypatch.setattr(reloaded, "Anthropic", lambda *a, **k: client)
+
+    result = reloaded.main()
+
+    assert result == {"scored": 3, "remaining": 0, "cap_reason": None}
+
+
+def test_main_returns_cost_cap_signal(tmp_path: Path, monkeypatch) -> None:
+    """A cost-cap stop is reported to the caller as remaining>0 with
+    cap_reason='cost'."""
+    monkeypatch.setenv("JOBAGENT_MAX_POSTINGS_PER_RUN", "1000")
+    monkeypatch.setenv("JOBAGENT_MAX_COST_PER_RUN", "0.15")
+    _setup_score_env(tmp_path, monkeypatch)
+    reloaded = importlib.reload(score)
+
+    rows = _plausible_rows(18)
+    monkeypatch.setattr(reloaded.store, "scorable", lambda *a, **k: rows)
+    monkeypatch.setattr(reloaded.store, "record_filter_rejections", lambda *a, **k: None)
+    # $0.02/posting -> batch 1 (6) projects 0.12 (<=0.15, proceeds); batch 2
+    # would project 0.24 (>0.15) and must stop. scored=6, remaining=12.
+    monkeypatch.setattr(reloaded, "_projected_batch_cost", lambda n: 0.02 * n)
+    monkeypatch.setattr(reloaded, "_write_scores", lambda scores: None)
+
+    client = _RecordingAnthropic()
+    monkeypatch.setattr(reloaded, "Anthropic", lambda *a, **k: client)
+
+    result = reloaded.main()
+
+    assert result["cap_reason"] == "cost"
+    assert result["scored"] == 6
+    assert result["remaining"] == 12
+
+
+def test_main_returns_posting_cap_signal(tmp_path: Path, monkeypatch) -> None:
+    """A posting-cap stop is reported as remaining>0 with cap_reason='postings'."""
+    monkeypatch.setenv("JOBAGENT_MAX_POSTINGS_PER_RUN", "10")
+    monkeypatch.setenv("JOBAGENT_MAX_COST_PER_RUN", "1000")
+    _setup_score_env(tmp_path, monkeypatch)
+    reloaded = importlib.reload(score)
+
+    rows = _plausible_rows(25)
+    monkeypatch.setattr(reloaded.store, "scorable", lambda *a, **k: rows)
+    monkeypatch.setattr(reloaded.store, "record_filter_rejections", lambda *a, **k: None)
+    monkeypatch.setattr(reloaded, "_write_scores", lambda scores: None)
+
+    client = _RecordingAnthropic()
+    monkeypatch.setattr(reloaded, "Anthropic", lambda *a, **k: client)
+
+    result = reloaded.main()
+
+    assert result["cap_reason"] == "postings"
+    assert result["scored"] == 10
+    assert result["remaining"] == 15
+
+
+def test_main_returns_remaining_when_all_batches_fail(tmp_path: Path, monkeypatch) -> None:
+    """LLM-scoring unavailability (every batch raises) is degradation, not a
+    cap: scored=0, remaining=len(plausible), cap_reason=None."""
+    _setup_score_env(tmp_path, monkeypatch)
+    reloaded = importlib.reload(score)
+
+    rows = _plausible_rows(7)
+    monkeypatch.setattr(reloaded.store, "scorable", lambda *a, **k: rows)
+    monkeypatch.setattr(reloaded.store, "record_filter_rejections", lambda *a, **k: None)
+
+    def boom(client, system, profile, batch):
+        raise RuntimeError("api down")
+
+    monkeypatch.setattr(reloaded, "_score_batch", boom)
+    monkeypatch.setattr(reloaded, "_write_scores", lambda scores: None)
+    _stub_anthropic(reloaded, monkeypatch)
+
+    result = reloaded.main()
+
+    assert result["scored"] == 0
+    assert result["remaining"] == 7
+    assert result["cap_reason"] is None

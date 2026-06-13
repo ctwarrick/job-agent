@@ -48,13 +48,30 @@ def load_registry(path: str | None = None) -> list[tuple[str, str]]:
     return entries
 
 
-def main() -> None:
+def main() -> list[dict]:
+    """Fetch every registered source, upserting what succeeds.
+
+    A per-source failure (an adapter raising, or a registry vendor with no
+    adapter) is non-fatal (FR-005): the source is logged to stderr for
+    after-the-fact diagnosis and collected as a structured record, and the run
+    continues to the next source. The records are returned so the orchestrator
+    can surface the degradation in the digest and on the run row -- the raw
+    error text stays in the logs and out of the returned record's caller-facing
+    uses (FR-007).
+
+    Returns:
+        A list of {source, company_slug, error} dicts, one per failed source;
+        empty when every source fetched cleanly.
+    """
     store.init()
     total_new = 0
+    failures: list[dict] = []
     for vendor, slug in load_registry():
         fetch = ADAPTERS.get(vendor)
         if fetch is None:
-            print(f"  ! no adapter for vendor {vendor!r} (slug {slug})", file=sys.stderr)
+            error = f"no adapter for vendor {vendor!r}"
+            print(f"  ! {error} (slug {slug})", file=sys.stderr)
+            failures.append({"source": vendor, "company_slug": slug, "error": error})
             continue
         try:
             postings = fetch(slug)
@@ -63,7 +80,9 @@ def main() -> None:
             print(f"  {vendor:12} {slug:20} {len(postings):4} fetched, {added:4} new")
         except Exception as e:  # one bad board shouldn't kill the run
             print(f"  ! {vendor}/{slug} failed: {e}", file=sys.stderr)
+            failures.append({"source": vendor, "company_slug": slug, "error": str(e)})
     print(f"\nDone. {total_new} new postings added.")
+    return failures
 
 
 if __name__ == "__main__":

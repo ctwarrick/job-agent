@@ -20,10 +20,13 @@ contracts/runtime-config.md):
        - "proceed": record a new run row and continue.
   3. fetch -> score -> digest, in order, fail loud (sys.exit) on a fatal
      stage error.
-  4. On a confirmed digest send, print RUN_SUCCESS. The run's success outcome
-     is committed via `store.finish_run` immediately after that confirmation
+  4. On a confirmed digest send, print RUN_SUCCESS. The run's outcome is
+     committed via `store.finish_run` immediately after that confirmation
      (digest.main() has already committed digest_sent_at inside its own
-     transaction by the time it returns -- see "Deviation" below).
+     transaction by the time it returns -- see "Deviation" below). The outcome
+     is "degraded" when a fetch source failed or scoring left a backlog
+     (FR-005/FR-020) -- both non-fatal, so RUN_SUCCESS still prints -- else
+     "success".
   5. On fatal failure, record outcome "failed" and exit non-zero; if this was
      the day's 3rd-or-later attempt, also print RUN_FAILED_FINAL.
 
@@ -56,6 +59,28 @@ from job_agent import digest, fetch, score, store
 FINAL_ATTEMPT = 3
 
 
+def _degradation_summary(failed_sources: list[dict], scoring: dict) -> str | None:
+    """Build the run row's human-readable `detail` for a degraded run.
+
+    Args:
+        failed_sources: Fetch failure records ({source, company_slug, error}).
+        scoring: The score stage's {scored, remaining, cap_reason} signal.
+
+    Returns:
+        A summary like "2 sources failed; 919 unscored (cap=cost)", or None
+        when the run was clean (no failed sources, nothing left unscored).
+    """
+    parts = []
+    n = len(failed_sources)
+    if n:
+        parts.append(f"{n} source{'s' if n != 1 else ''} failed")
+    remaining = scoring["remaining"]
+    if remaining > 0:
+        cap = scoring.get("cap_reason")
+        parts.append(f"{remaining} unscored" + (f" (cap={cap})" if cap else ""))
+    return "; ".join(parts) if parts else None
+
+
 def main() -> None:
     store.init()  # ensure schema exists before any run-tracking query
     digest_date = store.digest_date()
@@ -77,9 +102,11 @@ def main() -> None:
         ]
 
     try:
-        fetch.main()  # pull + store new postings
-        score.main()  # LLM-score the unscored ones
-        sent = digest.main()  # email high-fit, low-risk, not-yet-sent postings (or notice)
+        failed_sources = fetch.main()  # pull + store; returns per-source failures
+        scoring = score.main()  # LLM-score the unscored ones; returns degradation signal
+        # email high-fit, low-risk, not-yet-sent postings (or notice), with any
+        # degradation surfaced in the body
+        sent = digest.main(failed_sources=failed_sources, scoring=scoring)
     except SystemExit as e:
         store.finish_run(
             run_id,
@@ -112,9 +139,18 @@ def main() -> None:
             print(f"RUN_FAILED_FINAL digest_date={digest_date}")
         sys.exit("digest send failed")
 
-    # digest.main() has already committed digest_sent_at by this point
-    # (see module docstring "Deviation"); record the run's success outcome.
-    store.finish_run(run_id, outcome="success", failed_sources=None, detail=None)
+    # digest.main() has already committed digest_sent_at by this point (see
+    # module docstring "Deviation"); record the run's outcome. A failed fetch
+    # source or an unscored backlog is non-fatal degradation (FR-005/FR-020):
+    # the digest was delivered, so the day is done (startup_decision treats
+    # "degraded" like "success") and RUN_SUCCESS still prints.
+    degraded = bool(failed_sources) or scoring["remaining"] > 0
+    store.finish_run(
+        run_id,
+        outcome="degraded" if degraded else "success",
+        failed_sources=failed_sources or None,
+        detail=_degradation_summary(failed_sources, scoring),
+    )
     print(f"RUN_SUCCESS digest_date={digest_date}")
 
 

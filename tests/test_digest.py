@@ -230,3 +230,124 @@ def _set_smtp_env_keep_data_dir(monkeypatch) -> None:
     monkeypatch.setenv("SMTP_PASS", "secret")
     monkeypatch.setenv("DIGEST_TO", "me@example.com")
     monkeypatch.delenv("DIGEST_DRY_RUN", raising=False)
+
+
+# --- US3a: degradation notices (FR-005, FR-020) -----------------------------
+
+from job_agent.digest import _degradation_html, _degradation_text, _render_html
+
+_FAILED_SOURCES = [
+    {"source": "greenhouse", "company_slug": "acme", "error": "boom timeout"},
+    {"source": "lever", "company_slug": "foo", "error": "404 secret-token-xyz"},
+]
+_SCORING_BACKLOG = {"scored": 10, "remaining": 15, "cap_reason": "cost"}
+
+
+def test_degradation_text_names_each_failed_source() -> None:
+    text = _degradation_text(_FAILED_SOURCES, None)
+    assert "greenhouse" in text and "acme" in text
+    assert "lever" in text and "foo" in text
+
+
+def test_degradation_html_names_each_failed_source() -> None:
+    html = _degradation_html(_FAILED_SOURCES, None)
+    assert "greenhouse" in html and "acme" in html
+    assert "lever" in html and "foo" in html
+
+
+def test_degradation_text_omits_raw_error_text() -> None:
+    """A2/FR-007: the email notice names sources but must not leak the raw
+    exception string (which may carry a token/secret)."""
+    text = _degradation_text(_FAILED_SOURCES, None)
+    assert "secret-token-xyz" not in text
+    html = _degradation_html(_FAILED_SOURCES, None)
+    assert "secret-token-xyz" not in html
+
+
+def test_degradation_text_scoring_backlog_notice() -> None:
+    text = _degradation_text(None, _SCORING_BACKLOG)
+    assert "15" in text  # unscored count surfaced
+
+
+def test_degradation_html_scoring_backlog_notice() -> None:
+    html = _degradation_html(None, _SCORING_BACKLOG)
+    assert "15" in html
+
+
+def test_no_degradation_notice_when_healthy() -> None:
+    clean = {"scored": 3, "remaining": 0, "cap_reason": None}
+    assert _degradation_text(None, clean) == ""
+    assert _degradation_text([], clean) == ""
+    assert _degradation_html(None, clean) == ""
+    assert _degradation_html([], clean) == ""
+
+
+def test_main_includes_notice_in_body_even_with_no_matches(tmp_path: Path, monkeypatch) -> None:
+    """FR-005/FR-020: the degradation notice rides along in the delivered
+    digest, including on an otherwise empty (no-matches) day."""
+    db = tmp_path / "jobs.db"
+    from job_agent import store
+
+    store.init(str(db))
+    monkeypatch.chdir(tmp_path)
+    _set_smtp_env(monkeypatch)
+
+    sent = {}
+
+    def fake_send(subject: str, text: str, html: str) -> None:
+        sent["text"] = text
+        sent["html"] = html
+
+    monkeypatch.setattr(digest, "_send", fake_send)
+
+    result = digest.main(failed_sources=_FAILED_SOURCES, scoring=_SCORING_BACKLOG)
+
+    assert result is True
+    assert "acme" in sent["text"] and "foo" in sent["text"]
+    assert "15" in sent["text"]
+    assert "acme" in sent["html"] and "foo" in sent["html"]
+    # FR-007: raw error text never reaches the wire.
+    assert "secret-token-xyz" not in sent["text"]
+    assert "secret-token-xyz" not in sent["html"]
+
+
+def test_main_default_args_send_no_notice(tmp_path: Path, monkeypatch) -> None:
+    """Backward compat: digest.main() with no degradation args (the
+    jobagent-digest entry point) behaves exactly as before."""
+    db = tmp_path / "jobs.db"
+    from job_agent import store
+
+    store.init(str(db))
+    monkeypatch.chdir(tmp_path)
+    _set_smtp_env(monkeypatch)
+
+    sent = {}
+    monkeypatch.setattr(
+        digest, "_send", lambda subject, text, html: sent.update(text=text, html=html)
+    )
+
+    result = digest.main()
+
+    assert result is True
+    # an empty, healthy day carries no degraded-source name
+    assert "greenhouse" not in sent["text"]
+
+
+def test_render_html_unaffected_when_no_degradation() -> None:
+    """The bucket renderers stay degradation-agnostic; notices are composed
+    separately by _degradation_* and prepended by main()."""
+    groups = {
+        "engineering": [
+            {
+                "title": "Engineer",
+                "company": "Acme",
+                "location": "Remote",
+                "skills_fit": 8,
+                "category_risk": 2,
+                "url": "https://example.com",
+                "comp_flag": "ok",
+            }
+        ]
+    }
+    html = _render_html(groups)
+    assert "Engineer" in html

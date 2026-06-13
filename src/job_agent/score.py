@@ -309,7 +309,16 @@ def _format_score_summary(
     )
 
 
-def main() -> None:
+def main() -> dict:
+    """Run the scoring stage and report its degradation signal (FR-020).
+
+    Returns:
+        A dict with keys ``scored`` (postings scored this run), ``remaining``
+        (plausible postings left unscored -- a per-run cap, or every batch
+        failing, leaves these queued for a later run), and ``cap_reason``
+        (``"cost"``/``"postings"`` when a cap stopped the run, else ``None``).
+        The orchestrator treats ``remaining > 0`` as non-fatal degradation.
+    """
     if not os.environ.get("ANTHROPIC_API_KEY"):
         sys.exit("ANTHROPIC_API_KEY not set")
     if not SALARY_FLOOR:
@@ -382,6 +391,7 @@ def main() -> None:
         "cache_read_tokens": 0,
     }
     scored = 0
+    cap_reason: str | None = None
 
     if plausible:
         system = Path(store.data_path("screening_prompt.md")).read_text()
@@ -401,6 +411,7 @@ def main() -> None:
             batch_cost = _projected_batch_cost(len(batch))
             if projected_spend + batch_cost > max_cost:
                 remaining = len(plausible) - scored
+                cap_reason = "cost"
                 print(
                     f"SCORE_CAP_STOP reason=cost scored={scored} "
                     f"remaining={remaining} limit={cost_limit}"
@@ -420,6 +431,7 @@ def main() -> None:
 
             if scored >= max_postings:
                 remaining = len(plausible) - scored
+                cap_reason = "postings"
                 print(
                     f"SCORE_CAP_STOP reason=postings scored={scored} "
                     f"remaining={remaining} limit={max_postings}"
@@ -430,6 +442,7 @@ def main() -> None:
 
     remaining = len(plausible) - scored
     print(_format_score_summary(fetched, filtered, by_reason, scored, remaining, totals))
+    return {"scored": scored, "remaining": remaining, "cap_reason": cap_reason}
 
 
 if __name__ == "__main__":
