@@ -25,16 +25,22 @@ Sonnet — the work is well-scoped by the plan and the failing tests.
 3. Run `uv run pytest` until the whole suite is green, then run `uv run
    black --line-length 100` on the files you changed. Both must be clean
    before you report green — style is part of green, not a later sweep.
-4. For deliverables pytest can't exercise (Bicep, shell, docs), compiling
-   or linting is not validation: cross-check the artifact against the
-   runtime contract — every env var the code requires (grep its
-   `os.environ` reads and missing-config exits) must be provided by the
-   template, and every input the template requires (no-default/`@secure()`
-   params) must be supplied by every caller that deploys it (CI workflow,
-   manual command); resource names and identities must satisfy provider
-   constraints (length limits, permission-grant ordering); and verify the
-   semantics of any CLI command you prescribe against its docs or source,
-   even if it arrived verbatim from the plan or a handoff.
+4. For deliverables pytest can't exercise (Bicep, shell, docs), inspection
+   is not enough — run the artifact's own compiler against the *exact*
+   invocation the deploy uses, then cross-check it against the runtime
+   contract. For Bicep, compile the param file the way the deploy command
+   calls it: `az bicep build-params --file infra/main.bicepparam` (a
+   no-default/`@secure()` param must be assigned in the param file itself —
+   inline `--parameters` merge *after* the bicepparam compiles and can never
+   satisfy it; the mismatch is BCP258). The contract cross-check still
+   applies: every env var the code requires (grep its `os.environ` reads and
+   missing-config exits) must be provided by the template, and every input
+   the template requires (no-default/`@secure()` params) must be supplied by
+   every caller that deploys it (CI workflow, manual command); resource names
+   and identities must satisfy provider constraints (length limits,
+   permission-grant ordering); and verify the semantics of any CLI command
+   you prescribe against its docs or source, even if it arrived verbatim from
+   the plan or a handoff.
 5. Re-read the diff once for leftover debug code, dead branches, or scope
    creep beyond the plan. When you regenerate or change a source that has a
    compiled/generated output (e.g. `.bicep` → `.json`), check for a stale

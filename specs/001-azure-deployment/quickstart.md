@@ -21,8 +21,11 @@ markers in [contracts/runtime-config.md](contracts/runtime-config.md).
 2. Set the GitHub Actions repository secrets `ALERT_EMAIL`, `SMS_COUNTRY_CODE`,
    `SMS_PHONE` — CI re-supplies these never-committed parameters on every deploy
    ([deployment.md](contracts/deployment.md) → Never-committed parameters).
-3. `az deployment group create -g <rg> -f infra/main.bicep -p infra/main.bicepparam`
-   (supply `smsCountryCode`/`smsPhone` and `alertEmail` as CLI parameters).
+3. `export ALERT_EMAIL=… SMS_COUNTRY_CODE=… SMS_PHONE=…`, then
+   `az deployment group create -g <rg> -f infra/main.bicep -p infra/main.bicepparam`
+   (`main.bicepparam` reads the three receivers from the environment; they are
+   never passed as CLI `--parameters` — a `.bicepparam` file is compiled before
+   inline params merge, so a required param must be assigned there).
 4. Set the six Key Vault secrets (names in
    [deployment.md](contracts/deployment.md) → Bootstrap contract).
 5. Upload the three runtime files with `az storage file upload` (FR-012 mechanism).

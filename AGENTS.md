@@ -30,6 +30,7 @@ uv run python main.py      # full pipeline (fetch -> score -> digest)
 uv run jobagent-fetch      # single stage
 uv run jobagent-score
 uv run jobagent-digest
+scripts/validate-infra.sh  # compile-check Bicep infra (no Azure needed)
 ```
 
 ### Conventions
@@ -135,7 +136,12 @@ Principles:
 1. **TDD ordering**: failing tests are authored and shown red *before* any
    implementation code is written.
 2. **Green before done**: no task is "done" until `uv run pytest` passes; the
-   reviewer re-runs it rather than trusting the implementer's claim.
+   reviewer re-runs it rather than trusting the implementer's claim. A green
+   suite covers only Python — when a change touches infra (`infra/*.bicep*`)
+   or the deploy workflow, `scripts/validate-infra.sh` (a local `az bicep
+   build-params` compile, no Azure needed) must also pass and the reviewer
+   re-runs it too; a param-file/command-shape mismatch such as BCP258 is
+   caught here, not at deploy.
 3. **Independent review**: the reviewer gets a fresh context with only the
    diff and the plan — never the implementer's transcript.
 4. **Human gates**: the plan needs explicit human approval before build, and

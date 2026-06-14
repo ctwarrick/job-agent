@@ -27,7 +27,11 @@ Top (inherit) — architecture quality is leverage.
    an input newly *required* (a no-default param, a mandatory env var), grep
    every automated caller — CI workflows especially — and add the wiring to
    "Files to touch" in the same plan; don't defer a now-mandatory input to a
-   later task.
+   later task. For a required no-default/`@secure()` Bicep param, the plan's
+   local validation must include compiling the param file as the deploy
+   command invokes it (`az bicep build-params`) — name it as a local check,
+   not something deferred to an Azure-only drill: it must be assigned in the
+   bicepparam file, since inline `--parameters` cannot satisfy it (BCP258).
 3. Choose the simplest design consistent with existing patterns (e.g. new ATS
    vendors are an `adapters/<vendor>.py` exposing `fetch(slug) -> list[Posting]`
    plus a line in `ADAPTERS` — don't invent new structure).

@@ -67,19 +67,23 @@ parameter in the next step.
 ## 3. Deploy the infrastructure (first pass — expected to fail at the job)
 
 ```bash
+export ALERT_EMAIL='<your alert email>'
+export SMS_COUNTRY_CODE='<e.g. 1>'
+export SMS_PHONE='<your phone, digits only>'
+
 az deployment group create \
   --resource-group jobagent-rg \
   --template-file infra/main.bicep \
   --parameters infra/main.bicepparam \
-  --parameters imageTag=manual imageRepository=ghcr.io/<your-github-username>/job-agent \
-  --parameters alertEmail='<your alert email>' \
-               smsCountryCode='<e.g. 1>' smsPhone='<your phone, digits only>'
+  --parameters imageTag=manual imageRepository=ghcr.io/<your-github-username>/job-agent
 ```
 
 `alertEmail`, `smsCountryCode`, and `smsPhone` are **required** and have no
 defaults (a forgotten value fails the deploy rather than building a
-receiver-less alert). They are personal data — supply them on the command line
-on every deploy; never add them to `infra/main.bicepparam`
+receiver-less alert). They are personal data: `infra/main.bicepparam` reads them
+from the environment (`readEnvironmentVariable`) at compile time, so export the
+three variables above before deploying — never put the values in
+`infra/main.bicepparam`
 ([deployment.md](../specs/001-azure-deployment/contracts/deployment.md) →
 Never-committed parameters).
 

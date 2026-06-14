@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it reaches 1.0.0. Before 1.0.0, minor versions may include breaking changes.
 
+## [0.2.1] - 2026-06-13
+
+### Fixed
+
+- Continuous deployment was broken on its first run: `az deployment group
+  create` failed with Bicep error BCP258 because the required `@secure()`
+  receiver parameters (`alertEmail`, `smsCountryCode`, `smsPhone`) were passed
+  as inline `--parameters` alongside `infra/main.bicepparam`. A `.bicepparam`
+  file is compiled before inline parameters merge, so a required no-default
+  parameter must be assigned in the param file itself. `infra/main.bicepparam`
+  now reads the three receivers from the environment via
+  `readEnvironmentVariable`, and the deploy workflow (and the manual-deploy
+  docs) expose them as environment variables instead of inline parameters. The
+  values are still never committed, and a missing one fails the compile loudly
+  (BCP427) rather than building a receiver-less alert.
+
+### Added
+
+- `scripts/validate-infra.sh`: a local `az bicep build-params` compile-check
+  for the infra (no Azure access needed), so a param-file/command-shape
+  mismatch like the one above is caught before deploy. The "Green before done"
+  quality gate now requires it for changes touching `infra/` or the deploy
+  workflow, alongside `uv run pytest`.
+
 ## [0.2.0] - 2026-06-13
 
 ### Added

@@ -73,9 +73,10 @@ needs.
 
 ## Alert receivers (wired)
 
-US3 alerting landed in `infra/main.bicep` (T036), so `deploy.yml` now passes the
-action-group receivers (`ALERT_EMAIL` / `SMS_COUNTRY_CODE` / `SMS_PHONE` → Bicep
-`alertEmail` / `smsCountryCode` / `smsPhone`) from repo secrets on every deploy.
-They are required-with-no-default, so a deploy missing any of them fails loud
-rather than building a receiver-less alert. Set all three in activation step 2
-above before the first CI deploy.
+US3 alerting landed in `infra/main.bicep` (T036), so `deploy.yml` now exposes the
+action-group receivers (`ALERT_EMAIL` / `SMS_COUNTRY_CODE` / `SMS_PHONE`) as
+environment variables on the deploy step, and `infra/main.bicepparam` reads them
+(`readEnvironmentVariable`) into the Bicep params `alertEmail` / `smsCountryCode`
+/ `smsPhone` from repo secrets on every deploy. They are required-with-no-default,
+so a deploy missing any of them fails loud rather than building a receiver-less
+alert. Set all three in activation step 2 above before the first CI deploy.

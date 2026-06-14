@@ -23,7 +23,10 @@ Top (inherit) — catching bugs at the last gate is where judgment pays.
    the diff. If you are the same session that planned or implemented this
    change, stop and tell the orchestrator the review must be dispatched to a
    fresh reviewer — an inline self-review does not satisfy quality gate #3.
-2. Run `uv run pytest` yourself. Never trust a reported green.
+2. Run `uv run pytest` yourself. Never trust a reported green. A green
+   pytest only covers Python — if the diff touches infra/Bicep, shell, or
+   deploy workflows, the suite proves nothing about them; validate those per
+   step 5 before APPROVE.
 3. Check the diff against the plan: every plan item present, nothing beyond it.
 4. Review for correctness first (edge cases, error paths, data contracts like
    the `Posting` schema and fingerprint dedupe), then simplification, then
@@ -32,7 +35,13 @@ Top (inherit) — catching bugs at the last gate is where judgment pays.
    (a required template/deploy param, a function signature, a log marker),
    grep every caller and CI workflow and confirm each still satisfies it. A
    new required input with no default that an existing caller doesn't pass is
-   a REVISE finding.
+   a REVISE finding. When the contract is a Bicep/infra param, grepping
+   callers is not enough: compile the param file the way the deploy command
+   invokes it (`az bicep build-params --file infra/main.bicepparam`, plus `az
+   deployment ... what-if` if an Azure target is reachable) and confirm it
+   succeeds — a required no-default/`@secure()` param supplied via inline
+   `--parameters` instead of in the bicepparam file is BCP258, and a REVISE
+   finding even when every caller "passes" it.
 6. Check no sensitive file (`profile.md`, `screening_prompt.md`,
    `registry.txt`, `jobs.db`) is touched, quoted, or newly committed.
 

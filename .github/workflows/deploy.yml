@@ -82,18 +82,24 @@ jobs:
       # imageTag=<sha> matches the tag built above; Bicep composes
       # `${imageRepository}:${imageTag}`. The action-group receivers
       # (alertEmail/smsCountryCode/smsPhone) are required-with-no-default in
-      # main.bicep and personal data: passed from repo secrets, never committed,
-      # and masked by GitHub Actions. `--output none` suppresses the result JSON
-      # so the step echoes no parameter values; no --debug (FR-011). bicepparam
-      # carries the non-secret defaults.
+      # main.bicep and personal data. They are exposed as environment variables
+      # here; main.bicepparam reads them via readEnvironmentVariable at compile
+      # time. They are NOT passed as inline --parameters: a .bicepparam file is
+      # compiled before inline params merge, so an inline value cannot satisfy a
+      # required param (Bicep BCP258) — the env read is what assigns them. The
+      # values stay out of the repo and are masked by Actions; `@secure()` keeps
+      # them out of deployment output, `--output none` suppresses the result
+      # JSON so the step echoes no parameter values; no --debug (FR-011). The
+      # bicepparam file carries the non-secret defaults.
       - name: Deploy infrastructure
+        env:
+          ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
+          SMS_COUNTRY_CODE: ${{ secrets.SMS_COUNTRY_CODE }}
+          SMS_PHONE: ${{ secrets.SMS_PHONE }}
         run: |
           az deployment group create \
             --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
             --template-file infra/main.bicep \
             --parameters infra/main.bicepparam \
             --parameters imageTag="${{ github.sha }}" \
-            --parameters alertEmail="${{ secrets.ALERT_EMAIL }}" \
-                         smsCountryCode="${{ secrets.SMS_COUNTRY_CODE }}" \
-                         smsPhone="${{ secrets.SMS_PHONE }}" \
             --output none

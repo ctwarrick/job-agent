@@ -24,14 +24,24 @@ Binds `infra/main.bicep` + `infra/main.bicepparam`, `scripts/bootstrap.sh`, and
 
 ### Never-committed parameters
 
-`alertEmail`, `smsCountryCode`, and `smsPhone` are personal data and are absent
-from `main.bicepparam` (spec Assumptions: no email addresses or phone numbers in
-the public repository). They are supplied on **every** deployment:
+`alertEmail`, `smsCountryCode`, and `smsPhone` are personal data: their
+**values** never appear in the repo (spec Assumptions: no email addresses or
+phone numbers in the public repository). `main.bicepparam` assigns them with
+`readEnvironmentVariable(...)`, so the file references only the variable *names*;
+the values are read from the environment at compile time and are supplied on
+**every** deployment:
 
-- bootstrap deploy: passed as CLI `--parameters` by the maintainer;
-- CI deploys: passed from GitHub Actions repository secrets (`ALERT_EMAIL`,
-  `SMS_COUNTRY_CODE`, `SMS_PHONE`) in the deploy step, so routine redeploys
-  preserve the receivers without recording them anywhere in the repo.
+- bootstrap deploy: exported as env vars (`ALERT_EMAIL`, `SMS_COUNTRY_CODE`,
+  `SMS_PHONE`) in the maintainer's shell before `az deployment group create`;
+- CI deploys: the same-named GitHub Actions repository secrets, exposed as env
+  vars on the deploy step, so routine redeploys preserve the receivers without
+  recording them anywhere in the repo.
+
+A `.bicepparam` file is compiled before inline `--parameters` merge, so a
+required (no-default) param must be assigned in the param file itself (else Bicep
+BCP258); the environment read satisfies that without committing a value, and a
+missing variable fails the compile (BCP427) rather than building a receiver-less
+alert.
 
 For FR-010 reproducibility, GitHub Actions repository secrets count as part of
 "secrets": the environment is reproducible from repository + secrets + runtime
