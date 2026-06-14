@@ -6,6 +6,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it reaches 1.0.0. Before 1.0.0, minor versions may include breaking changes.
 
+## [0.2.0] - 2026-06-13
+
+### Added
+
+- Continuous deployment: a push to `main` now runs the test suite and, only
+  on green, builds the container image and redeploys to Azure with no manual
+  step (`.github/workflows/deploy.yml`). Auth is via OIDC, with no cloud
+  credential stored in the repo. The previous manual deploy path
+  (`docs/manual-deployment.md`) remains the fallback for initial bootstrap
+  and disaster recovery; see `docs/ci-cd.md` for one-time activation and the
+  validation drill.
+- Missed-deadline alerting: if the daily digest hasn't run successfully by
+  the configured local deadline (default 06:00, `deliveryDeadlineHourLocal`),
+  an Azure scheduled query alert pages the maintainer by email and SMS within
+  30 minutes, and self-clears once a run succeeds. Receivers are supplied at
+  deploy time via required, never-committed parameters (`alertEmail`,
+  `smsCountryCode`, `smsPhone`), wired through from repo secrets by the new
+  deploy workflow.
+- Run-failure visibility: a fetch source that fails (adapter error or an
+  unknown ATS vendor in `registry.txt`) no longer disappears into the logs —
+  the run continues with the remaining sources, and the digest email gets a
+  notice naming the affected source(s) without leaking error details. If
+  scoring leaves postings unscored (per-run cap or LLM unavailability), the
+  digest notes the backlog size and the postings stay queued for the next
+  run. Such a run is recorded with outcome `degraded` and a human-readable
+  `detail` summary on the `runs` table, while still printing `RUN_SUCCESS` so
+  the missed-deadline alert does not fire on a run that did deliver a digest.
+
+### Changed
+
+- `pyyaml` is now a project dependency.
+
+### Removed
+
+- The stale compiled `infra/main.json` (a leftover bicepparam artifact
+  referencing the removed `JOBAGENT_MAX_LLM_CALLS` var); `.gitignore` now
+  guards against it being regenerated and committed.
+
 ## [0.1.1] - 2026-06-12
 
 ### Added

@@ -29,12 +29,17 @@ Sonnet — the work is well-scoped by the plan and the failing tests.
    or linting is not validation: cross-check the artifact against the
    runtime contract — every env var the code requires (grep its
    `os.environ` reads and missing-config exits) must be provided by the
-   template; resource names and identities must satisfy provider
+   template, and every input the template requires (no-default/`@secure()`
+   params) must be supplied by every caller that deploys it (CI workflow,
+   manual command); resource names and identities must satisfy provider
    constraints (length limits, permission-grant ordering); and verify the
    semantics of any CLI command you prescribe against its docs or source,
    even if it arrived verbatim from the plan or a handoff.
 5. Re-read the diff once for leftover debug code, dead branches, or scope
-   creep beyond the plan.
+   creep beyond the plan. When you regenerate or change a source that has a
+   compiled/generated output (e.g. `.bicep` → `.json`), check for a stale
+   committed copy of that output and flag it (stale value, or
+   tracked-but-unreferenced) as a one-line finding for the human.
 
 ## Output contract
 

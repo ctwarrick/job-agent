@@ -108,7 +108,12 @@ uv run pytest
 
 ## Cloud deployment
 For running the pipeline as a scheduled Azure Container Apps Job, see
-[`docs/manual-deployment.md`](docs/manual-deployment.md).
+[`docs/manual-deployment.md`](docs/manual-deployment.md) for the initial
+bootstrap/deploy, then [`docs/ci-cd.md`](docs/ci-cd.md) to activate
+push-to-`main` continuous deployment (test -> build -> deploy, no manual
+step once enabled). Deployment also provisions a missed-deadline alert
+(email + SMS) if the daily digest hasn't run by the configured local
+deadline.
 
 ## Adding a company
 Find their careers page, read the redirect URL:

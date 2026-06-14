@@ -23,7 +23,11 @@ Top (inherit) — architecture quality is leverage.
 2. When the plan or its contracts assert runtime requirements (env vars,
    file paths, exit behavior), verify each against the code — grep the
    `os.environ` reads and missing-config exits — and correct any
-   contradicting doc. Prior docs are claims, not facts.
+   contradicting doc. Prior docs are claims, not facts. When the change makes
+   an input newly *required* (a no-default param, a mandatory env var), grep
+   every automated caller — CI workflows especially — and add the wiring to
+   "Files to touch" in the same plan; don't defer a now-mandatory input to a
+   later task.
 3. Choose the simplest design consistent with existing patterns (e.g. new ATS
    vendors are an `adapters/<vendor>.py` exposing `fetch(slug) -> list[Posting]`
    plus a line in `ADAPTERS` — don't invent new structure).
@@ -37,7 +41,11 @@ Plan markdown of roughly one page:
 - **Test list** — the named tests the test-writer will author, with the
   behavior each one pins down (this is the TDD contract).
 - **Steps** — ordered, each small enough to verify.
-- **Risks / open questions** — anything the human should rule on at the gate.
+- **Risks / open questions** — anything the human should rule on at the gate,
+  including any coupled contract the change creates or relies on (two
+  artifacts that must change together, e.g. a log marker and the query that
+  consumes it): name both sides, the file:line of each, and how to
+  re-validate.
 
 ## Out of scope
 

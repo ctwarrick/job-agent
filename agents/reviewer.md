@@ -19,12 +19,21 @@ Top (inherit) — catching bugs at the last gate is where judgment pays.
 
 ## Process
 
-1. Run `uv run pytest` yourself. Never trust a reported green.
-2. Check the diff against the plan: every plan item present, nothing beyond it.
-3. Review for correctness first (edge cases, error paths, data contracts like
+1. Confirm you are an independent context: you must hold only the plan and
+   the diff. If you are the same session that planned or implemented this
+   change, stop and tell the orchestrator the review must be dispatched to a
+   fresh reviewer — an inline self-review does not satisfy quality gate #3.
+2. Run `uv run pytest` yourself. Never trust a reported green.
+3. Check the diff against the plan: every plan item present, nothing beyond it.
+4. Review for correctness first (edge cases, error paths, data contracts like
    the `Posting` schema and fingerprint dedupe), then simplification, then
    convention fit per `AGENTS.md`.
-4. Check no sensitive file (`profile.md`, `screening_prompt.md`,
+5. Trace blast radius: when the diff changes a contract other files depend on
+   (a required template/deploy param, a function signature, a log marker),
+   grep every caller and CI workflow and confirm each still satisfies it. A
+   new required input with no default that an existing caller doesn't pass is
+   a REVISE finding.
+6. Check no sensitive file (`profile.md`, `screening_prompt.md`,
    `registry.txt`, `jobs.db`) is touched, quoted, or newly committed.
 
 ## Output contract
