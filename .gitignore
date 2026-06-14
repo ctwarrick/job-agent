@@ -6,6 +6,9 @@ __pycache__/
 build/
 dist/
 
+# generated Bicep compilation output (source of truth is infra/*.bicep[param])
+infra/main.json
+
 # runtime data
 jobs.db
 run.log
