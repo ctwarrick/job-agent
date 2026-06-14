@@ -5,10 +5,14 @@ bootstrap → build and push the image by hand → deploy `infra/main.bicep` →
 set secrets → upload runtime files → trigger a smoke run.
 
 **MVP honesty check**: at this stage there is no GitHub Actions workflow yet
-(US2) and no platform alerting yet (US3). If the job silently fails one night,
-the *only* signal is a missing morning email — there is no SMS/email alert
-until the US3 alert rule is deployed. Until then, check
-`az containerapp job logs show` periodically, especially after any change.
+(US2) — you build, push, and deploy by hand. Platform alerting (US3) *is* now
+part of `infra/main.bicep`: deploying in step 3 with the receiver parameters
+creates the action group + missed-deadline alert rule, so a silently failed
+night pages you (email + SMS) by ~06:30. Confirm it end-to-end with the
+**required** US3 alert drill in
+[`quickstart.md`](../specs/001-azure-deployment/quickstart.md) §US3 (needs Azure
+access) before relying on it; until then, also watch
+`az containerapp job logs show` after any change.
 
 For background, see:
 
@@ -67,8 +71,17 @@ az deployment group create \
   --resource-group jobagent-rg \
   --template-file infra/main.bicep \
   --parameters infra/main.bicepparam \
-  --parameters imageTag=manual imageRepository=ghcr.io/<your-github-username>/job-agent
+  --parameters imageTag=manual imageRepository=ghcr.io/<your-github-username>/job-agent \
+  --parameters alertEmail='<your alert email>' \
+               smsCountryCode='<e.g. 1>' smsPhone='<your phone, digits only>'
 ```
+
+`alertEmail`, `smsCountryCode`, and `smsPhone` are **required** and have no
+defaults (a forgotten value fails the deploy rather than building a
+receiver-less alert). They are personal data — supply them on the command line
+on every deploy; never add them to `infra/main.bicepparam`
+([deployment.md](../specs/001-azure-deployment/contracts/deployment.md) →
+Never-committed parameters).
 
 This creates the Log Analytics workspace, Container Apps environment, storage
 account + Azure Files share, Key Vault, the job's user-assigned managed
@@ -80,8 +93,9 @@ seven Key Vault secrets (`anthropic-api-key`, `smtp-host`, `smtp-port`,
 `smtp-user`, `smtp-pass`, `digest-to`, `salary-floor`) that do not exist yet,
 so the job resource is expected to **fail to deploy** — every other resource
 (Log Analytics, storage, Key Vault, the managed identity and its role
-assignment, the Container Apps environment) deploys successfully. Because the
-deployment as a whole failed, it returns **no outputs**.
+assignment, the Container Apps environment, the action group, and the
+missed-deadline alert rule) deploys successfully. Because the deployment as a
+whole failed, it returns **no outputs**.
 
 Get the names of the resources that did deploy directly, rather than from
 deployment outputs:
@@ -206,10 +220,12 @@ bypasses the "already succeeded today" skip but not the in-flight lock.
   GitHub Actions workflow on every push to `main`. Activate it (one-time repo
   secrets + the validation drill) per [docs/ci-cd.md](ci-cd.md). Until you
   activate it, this manual path remains the steady state.
-- **US3** (not yet built) adds an action group + scheduled query alert rule so a
-  missed morning digest pages the maintainer by ~06:30, instead of being
-  silently noticed (or not) the next time someone checks email.
+- **US3 alerting is implemented** — `infra/main.bicep` now contains the action
+  group + scheduled query alert rule, so a missed morning digest pages the
+  maintainer (email + SMS) by ~06:30 instead of being noticed (or not) the next
+  time someone checks email. It deploys with step 3; the **required** alert
+  drill (quickstart §US3) is the remaining validation and needs Azure access.
 
-Until US2 is activated and US3 lands, treat this manual path as the steady
-state: redeploy by repeating steps 2–3 (rebuild/push a new tag, redeploy with
-the new `imageTag`), and watch the inbox each morning.
+Until US2 is activated, treat this manual path as the steady state: redeploy by
+repeating steps 2–3 (rebuild/push a new tag, redeploy with the new `imageTag`),
+and watch the inbox each morning.

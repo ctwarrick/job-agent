@@ -13,6 +13,7 @@ Binds `infra/main.bicep` + `infra/main.bicepparam`, `scripts/bootstrap.sh`, and
 | `namePrefix` | `jobagent` | resource naming seed |
 | `cronExpression` | `0,20,40 11 * * *` | UTC; three ticks ≈20 min apart = retry policy (research §2); derivation formula below |
 | `tz` | `America/Los_Angeles` | passed through as `JOBAGENT_TZ` |
+| `deliveryDeadlineHourLocal` | `6` | local hour (0–23) in `tz` after which a day with no `RUN_SUCCESS` is "missed"; feeds the alert query. A deadline change is a redeploy, not a query edit (FR-002) |
 | `alertEmail` | supplied at deploy time | action-group email receiver — **never committed** (see below) |
 | `smsCountryCode` + `smsPhone` | supplied at deploy time | action-group SMS receiver — **never committed** (see below) |
 | `budgetAmount` | `50` | `Microsoft.Consumption/budgets`, alerts at 50% / 80% |
@@ -66,7 +67,7 @@ Two arithmetic constraints make FR-017/FR-018 hold:
 | Log Analytics workspace | run logs (FR-007) + alert query source |
 | Key Vault (standard) | secret store (FR-011); job MI gets *Key Vault Secrets User* |
 | Action group | email + SMS receivers (FR-006) |
-| Scheduled query alert rule (30-min evaluation) | **missed-deadline semantics**: returns a failure row only when local time in `tz` is past the delivery deadline *and* no `RUN_SUCCESS digest_date=<today's local date>` exists. Keying on `digest_date` means markers from evening manual runs or no-op skips (which carry a different/already-passed date) cannot mask a failed overnight run; computing in local time keeps it DST-correct. Worst-case notification = deadline + one 30-min evaluation ≈ 06:30, which is SC-004's bound. Condition self-clears at local midnight or on a successful recovery run. See [runtime-config.md](runtime-config.md) log-marker contract |
+| Scheduled query alert rule (30-min evaluation) | **missed-deadline semantics**: returns a failure row only when local time in `tz` is past the delivery deadline (`deliveryDeadlineHourLocal`) *and* no `RUN_SUCCESS digest_date=<today's local date>` exists. Keying on `digest_date` means markers from evening manual runs or no-op skips (which carry a different/already-passed date) cannot mask a failed overnight run; computing in local time keeps it DST-correct. Worst-case notification = deadline + one 30-min evaluation ≈ 06:30, which is SC-004's bound. Condition self-clears at local midnight or on a successful recovery run. See [runtime-config.md](runtime-config.md) log-marker contract |
 | `Microsoft.Consumption/budgets` ($50; 50%/80%) | spend visibility (FR-014) |
 | User-assigned managed identity + federated credential | GitHub OIDC deploy identity (created by bootstrap, referenced here) |
 

@@ -1,14 +1,16 @@
 // infra/main.bicep — core MVP infrastructure for the job-agent pipeline.
 //
-// Resources (per specs/001-azure-deployment/contracts/deployment.md, US1 scope):
+// Resources (per specs/001-azure-deployment/contracts/deployment.md, US1 + US3
+// alerting scope):
 //   - Log Analytics workspace          : run logs (FR-007), Container Apps env sink
 //   - Container Apps environment       : Consumption plan, hosts the job
 //   - Storage account + Files share    : jobs.db + runtime files (no public access)
 //   - Key Vault (standard)             : secret store (FR-011)
 //   - Container Apps Job               : Schedule trigger, the pipeline itself
+//   - Action group                     : email + SMS alert receivers (US3, FR-006)
+//   - Scheduled query alert rule       : missed-deadline page by ~06:30 (US3, SC-004)
 //
 // Deliberately OUT OF SCOPE for this file (later user stories / polish):
-//   - Action group / alert rules (US3, T036)
 //   - Microsoft.Consumption/budgets (Polish, T043)
 //   - GitHub-OIDC deploy user-assigned identity + federated credential (US2,
 //     T026 — created by scripts/bootstrap.sh, referenced here only later)
@@ -70,6 +72,28 @@ param replicaTimeoutSeconds int = 900
 
 @description('Scoring model passed through as JOBAGENT_MODEL; the cost dial.')
 param model string = 'claude-sonnet-4-6'
+
+// US3 alerting params (contracts/deployment.md → Never-committed parameters).
+// alertEmail / smsCountryCode / smsPhone are personal data: they have NO
+// defaults (a forgotten value fails the deploy loud rather than building a
+// receiver-less alert) and are @secure() so Azure keeps them out of deployment
+// history and CI --debug output (FR-007). Supplied on every deploy — CLI
+// --parameters for the bootstrap deploy, repo secrets for CI.
+
+@secure()
+@description('Action-group email receiver. Supplied at deploy time; never committed.')
+param alertEmail string
+
+@secure()
+@description('Action-group SMS receiver country code (e.g. "1"). Supplied at deploy time; never committed.')
+param smsCountryCode string
+
+@secure()
+@description('Action-group SMS receiver phone number. Supplied at deploy time; never committed.')
+param smsPhone string
+
+@description('Local delivery deadline hour (0-23) in tz; the missed-deadline alert evaluates as missed once local time passes this hour with no RUN_SUCCESS for the day. A deadline change is a redeploy, not a query edit (FR-002).')
+param deliveryDeadlineHourLocal int = 6
 
 // ---------------------------------------------------------------------------
 // Log Analytics workspace — run logs (FR-007) and Container Apps env sink
@@ -397,6 +421,113 @@ resource job 'Microsoft.App/jobs@2024-03-01' = {
 }
 
 // ---------------------------------------------------------------------------
+// Action group — email + SMS alert receivers (US3, FR-006)
+// Outbound notification only; holds no role (identity & access matrix).
+// ---------------------------------------------------------------------------
+
+resource actionGroup 'Microsoft.Insights/actionGroups@2023-01-01' = {
+  name: '${namePrefix}-alerts'
+  location: 'global'
+  properties: {
+    groupShortName: take(sanitizedPrefix, 12)
+    enabled: true
+    emailReceivers: [
+      {
+        name: 'maintainer-email'
+        emailAddress: alertEmail
+        useCommonAlertSchema: true
+      }
+    ]
+    smsReceivers: [
+      {
+        name: 'maintainer-sms'
+        countryCode: smsCountryCode
+        phoneNumber: smsPhone
+      }
+    ]
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Scheduled query alert rule — missed-deadline page (US3, SC-004)
+//
+// ⚠️ COUPLED CONTRACT (contracts/runtime-config.md log-marker contract): the
+// query below keys on the literal `RUN_SUCCESS digest_date=<today>` printed by
+// main.py. Changing the marker format OR this query is a breaking change that
+// must edit both in the same commit and be re-validated by the T037 alert drill.
+//
+// Semantics: every 30 min, compute "now" in the deployment timezone
+// (DST-correct via datetime_utc_to_local). Once local time is past
+// deliveryDeadlineHourLocal AND no RUN_SUCCESS marker carries today's local
+// date, the query returns one row -> the rule fires -> action group (email +
+// SMS). Keying on today's date stops evening manual runs or no-op skips
+// (older/different digest_date) from masking a failed overnight run. windowSize
+// P1D so each intra-day evaluation still sees the day's early (~03:00-04:00
+// local) success marker. autoMitigate self-clears on a recovery run or at local
+// midnight (date key rolls -> pastDeadline false -> zero rows -> resolved).
+// Worst case notify = deadline + one 30-min evaluation ~= 06:30, SC-004's bound.
+//
+// skipQueryValidation: ContainerAppConsoleLogs_CL does not exist until the job
+// has logged at least once, so deploy-time validation would fail on a fresh
+// workspace (the first deploy provisions LAW and this rule together). The query
+// is exercised for real by the required T037 drill instead.
+// ---------------------------------------------------------------------------
+
+// Built with join() over interpolated lines, not a '''multi-line''' literal:
+// Bicep triple-quoted strings are verbatim and would emit `${tz}` literally.
+var missedDeadlineQuery = join([
+  'let tzName = "${tz}";'
+  'let deadlineHour = ${deliveryDeadlineHourLocal};'
+  'let localNow = datetime_utc_to_local(now(), tzName);'
+  'let localMidnight = startofday(localNow);'
+  'let todayKey = format_datetime(localMidnight, "yyyy-MM-dd");'
+  'let pastDeadline = localNow >= localMidnight + (deadlineHour * 1h);'
+  'ContainerAppConsoleLogs_CL'
+  '| where TimeGenerated > ago(1d)'
+  '| where Log_s contains_cs strcat("RUN_SUCCESS digest_date=", todayKey)'
+  '| summarize successMarkers = count()'
+  '| where pastDeadline and successMarkers == 0'
+], '\n')
+
+resource missedDeadlineAlert 'Microsoft.Insights/scheduledQueryRules@2022-06-15' = {
+  name: '${namePrefix}-missed-deadline'
+  location: location
+  kind: 'LogAlert'
+  properties: {
+    displayName: '${namePrefix} missed morning digest'
+    description: 'No RUN_SUCCESS marker for today by the local delivery deadline; the overnight pipeline did not deliver.'
+    severity: 1
+    enabled: true
+    scopes: [
+      logAnalytics.id
+    ]
+    evaluationFrequency: 'PT30M'
+    windowSize: 'P1D'
+    autoMitigate: true
+    skipQueryValidation: true
+    criteria: {
+      allOf: [
+        {
+          query: missedDeadlineQuery
+          timeAggregation: 'Count'
+          operator: 'GreaterThan'
+          threshold: 0
+          failingPeriods: {
+            numberOfEvaluationPeriods: 1
+            minFailingPeriodsToAlert: 1
+          }
+        }
+      ]
+    }
+    actions: {
+      actionGroups: [
+        actionGroup.id
+      ]
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Outputs
 // ---------------------------------------------------------------------------
 
@@ -412,3 +543,5 @@ output fileShareName string = dataShare.name
 output deployIdentityClientId string = deployIdentity.properties.clientId
 output keyVaultName string = keyVault.name
 output logAnalyticsWorkspaceName string = logAnalytics.name
+output actionGroupName string = actionGroup.name
+output missedDeadlineAlertName string = missedDeadlineAlert.name

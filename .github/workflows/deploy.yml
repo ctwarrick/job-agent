@@ -11,7 +11,8 @@
 # contract". Auth is OIDC against the deploy identity created by
 # scripts/bootstrap.sh — no cloud credential is stored. Repo config required
 # (set by the maintainer, never committed):
-#   secrets:   AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID
+#   secrets:   AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID,
+#              ALERT_EMAIL, SMS_COUNTRY_CODE, SMS_PHONE (alert receivers)
 #   variables: AZURE_RESOURCE_GROUP (e.g. jobagent-rg)
 
 name: Deploy to Azure
@@ -79,9 +80,12 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       # imageTag=<sha> matches the tag built above; Bicep composes
-      # `${imageRepository}:${imageTag}`. `--output none` suppresses the result
-      # JSON so the step echoes no parameter values; no --debug (FR-011).
-      # bicepparam carries the non-secret defaults.
+      # `${imageRepository}:${imageTag}`. The action-group receivers
+      # (alertEmail/smsCountryCode/smsPhone) are required-with-no-default in
+      # main.bicep and personal data: passed from repo secrets, never committed,
+      # and masked by GitHub Actions. `--output none` suppresses the result JSON
+      # so the step echoes no parameter values; no --debug (FR-011). bicepparam
+      # carries the non-secret defaults.
       - name: Deploy infrastructure
         run: |
           az deployment group create \
@@ -89,9 +93,7 @@ jobs:
             --template-file infra/main.bicep \
             --parameters infra/main.bicepparam \
             --parameters imageTag="${{ github.sha }}" \
+            --parameters alertEmail="${{ secrets.ALERT_EMAIL }}" \
+                         smsCountryCode="${{ secrets.SMS_COUNTRY_CODE }}" \
+                         smsPhone="${{ secrets.SMS_PHONE }}" \
             --output none
-        # TODO(US3 / T036): when alerting lands in infra/main.bicep, pass the
-        # action-group receivers from repo secrets (never committed):
-        #   --parameters alertEmail="${{ secrets.ALERT_EMAIL }}" \
-        #                smsCountryCode="${{ secrets.SMS_COUNTRY_CODE }}" \
-        #                smsPhone="${{ secrets.SMS_PHONE }}"

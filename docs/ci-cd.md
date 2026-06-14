@@ -13,7 +13,7 @@ the fallback for the initial bootstrap and for disaster rebuilds (US5).
 |---|---|
 | `test` | `uv sync` → `uv run pytest` |
 | `build` (needs `test`) | docker build; push `ghcr.io/<owner>/job-agent:<sha>` |
-| `deploy` (needs `build`) | `az login` via OIDC; `az deployment group create … imageTag=<sha>` |
+| `deploy` (needs `build`) | `az login` via OIDC; `az deployment group create … imageTag=<sha>` plus the alert receivers from repo secrets |
 
 The `needs:` chain is the no-override deploy gate (FR-008/-009): no
 `workflow_dispatch` on build/deploy, no `continue-on-error`, no path to deploy
@@ -43,8 +43,16 @@ needs.
    gh secret   set AZURE_CLIENT_ID       --body "<deploy-identity-client-id>"
    gh secret   set AZURE_TENANT_ID       --body "<tenant-id>"
    gh secret   set AZURE_SUBSCRIPTION_ID --body "<subscription-id>"
+   gh secret   set ALERT_EMAIL           --body "<alert email address>"
+   gh secret   set SMS_COUNTRY_CODE      --body "<e.g. 1>"
+   gh secret   set SMS_PHONE             --body "<phone digits only>"
    gh variable set AZURE_RESOURCE_GROUP  --body "jobagent-rg"
    ```
+
+   `ALERT_EMAIL` / `SMS_COUNTRY_CODE` / `SMS_PHONE` are personal data and are
+   **required** on every deploy (the Bicep params have no defaults) — the
+   workflow passes them to `infra/main.bicep` so the action-group receivers are
+   restored on each redeploy without ever being committed.
 
 3. After the **first** successful `build`, make the GHCR package **public** so
    the Container Apps job can pull it without registry credentials: GitHub →
@@ -63,10 +71,11 @@ needs.
    values appear (no API keys, SMTP creds, OIDC tokens, or Key Vault secret
    *values*; `az` was not run with `--debug`). Secret *names* are public contract.
 
-## Deferred: alert receivers
+## Alert receivers (wired)
 
-`deploy.yml` passes only `imageTag` today. The action-group alert receivers
-(`ALERT_EMAIL` / `SMS_COUNTRY_CODE` / `SMS_PHONE` → Bicep `alertEmail` /
-`smsCountryCode` / `smsPhone`) are wired in when **US3** alerting lands in
-`infra/main.bicep` (T036). There is a `TODO(US3 / T036)` marker in the deploy
-step marking exactly where they attach.
+US3 alerting landed in `infra/main.bicep` (T036), so `deploy.yml` now passes the
+action-group receivers (`ALERT_EMAIL` / `SMS_COUNTRY_CODE` / `SMS_PHONE` → Bicep
+`alertEmail` / `smsCountryCode` / `smsPhone`) from repo secrets on every deploy.
+They are required-with-no-default, so a deploy missing any of them fails loud
+rather than building a receiver-less alert. Set all three in activation step 2
+above before the first CI deploy.
