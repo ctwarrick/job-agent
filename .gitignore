@@ -15,6 +15,7 @@ run.log
 
 # working docs
 docs/work
+plans
 
 # secrets / personal
 .env
