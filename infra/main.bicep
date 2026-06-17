@@ -58,7 +58,7 @@ param priceCacheWrite string = '3.75'
 @description('Per-MTok cache-read price, as JOBAGENT_PRICE_CACHE_READ (claude-sonnet-4-6 rate).')
 param priceCacheRead string = '0.30'
 
-@description('Retention window in days for unloved postings, passed through as JOBAGENT_RETENTION_DAYS.')
+@description('Retention window in days for postings, passed through as JOBAGENT_RETENTION_DAYS.')
 param retentionDays int = 60
 
 @description('Container image tag (e.g. git SHA) for ghcr.io/<owner>/job-agent.')

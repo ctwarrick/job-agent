@@ -282,6 +282,55 @@ def record_filter_rejections(
         )
 
 
+def purge_old_postings(
+    retention_days: int | None = None, path: str | None = None
+) -> tuple[int, int]:
+    """Delete postings past the retention window (FR-015).
+
+    Removes `postings` rows whose joined `applications.status` is `new`,
+    `dismissed`, or `duplicate` **and** whose `fetched_at` is older than the
+    retention window, together with their `applications` rows, in a single
+    transaction. Postings with any other status (`applied`/`interviewing`/
+    `closed`) are never purged; a posting with no `applications` row is excluded
+    by the inner join and so is never purged either (data-model.md "Retention
+    rules").
+
+    `fetched_at` is an ISO-8601 UTC timestamp (schema.Posting.to_row), so the
+    cutoff is a lexical string comparison.
+
+    Args:
+        retention_days: Override for the window in days; defaults to the
+            JOBAGENT_RETENTION_DAYS env var, or 60.
+        path: Optional path to jobs.db; defaults to data_path("jobs.db").
+
+    Returns:
+        A (postings_deleted, applications_deleted) count tuple.
+    """
+    if retention_days is None:
+        retention_days = int(os.environ.get("JOBAGENT_RETENTION_DAYS", "60"))
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).isoformat()
+    purgeable = ("new", "dismissed", "duplicate")
+    status_slots = ",".join("?" for _ in purgeable)
+    with connect(path) as conn:
+        rows = conn.execute(
+            f"SELECT p.fingerprint FROM postings p "
+            f"JOIN applications a ON a.fingerprint = p.fingerprint "
+            f"WHERE a.status IN ({status_slots}) AND p.fetched_at < ?",
+            (*purgeable, cutoff),
+        ).fetchall()
+        fingerprints = [r["fingerprint"] for r in rows]
+        if not fingerprints:
+            return (0, 0)
+        fp_slots = ",".join("?" for _ in fingerprints)
+        apps_deleted = conn.execute(
+            f"DELETE FROM applications WHERE fingerprint IN ({fp_slots})", fingerprints
+        ).rowcount
+        postings_deleted = conn.execute(
+            f"DELETE FROM postings WHERE fingerprint IN ({fp_slots})", fingerprints
+        ).rowcount
+    return (postings_deleted, apps_deleted)
+
+
 def digest_date(tz: str | None = None) -> str:
     """Today's local date (YYYY-MM-DD) in JOBAGENT_TZ
     (default America/Los_Angeles).

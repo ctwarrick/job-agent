@@ -488,3 +488,103 @@ def test_digest_date_honors_jobagent_tz(monkeypatch) -> None:
     monkeypatch.setenv("JOBAGENT_TZ", "UTC")
     expected = datetime.now(ZoneInfo("UTC")).strftime("%Y-%m-%d")
     assert store.digest_date() == expected
+
+
+# --- retention purge (FR-015, data-model.md "Retention rules") --------------
+
+
+def _seed_aged_posting(db: str, *, title: str, status: str, age_days: int) -> str:
+    """Insert one posting (+ its seeded application), then backdate
+    fetched_at and set the application status.
+
+    Title varies per call so each posting gets a distinct fingerprint.
+    Returns the posting fingerprint.
+    """
+    p = _posting(title=title)
+    store.upsert_postings([p], path=db)
+    fetched_at = (datetime.now(timezone.utc) - timedelta(days=age_days)).isoformat()
+    with store.connect(db) as conn:
+        conn.execute(
+            "UPDATE postings SET fetched_at=? WHERE fingerprint=?",
+            (fetched_at, p.fingerprint),
+        )
+        conn.execute(
+            "UPDATE applications SET status=? WHERE fingerprint=?",
+            (status, p.fingerprint),
+        )
+    return p.fingerprint
+
+
+def _fingerprints(db: str, table: str) -> set[str]:
+    with store.connect(db) as conn:
+        return {r["fingerprint"] for r in conn.execute(f"SELECT fingerprint FROM {table}")}
+
+
+def test_purge_deletes_old_new_posting_and_its_application(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("JOBAGENT_RETENTION_DAYS", raising=False)
+    db = str(tmp_path / "jobs.db")
+    store.init(db)
+    fp = _seed_aged_posting(db, title="Old New", status="new", age_days=90)
+
+    deleted = store.purge_old_postings(path=db)
+
+    assert deleted == (1, 1)
+    assert fp not in _fingerprints(db, "postings")
+    assert fp not in _fingerprints(db, "applications")
+
+
+def test_purge_deletes_old_dismissed_and_duplicate(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("JOBAGENT_RETENTION_DAYS", raising=False)
+    db = str(tmp_path / "jobs.db")
+    store.init(db)
+    dismissed = _seed_aged_posting(db, title="Old Dismissed", status="dismissed", age_days=90)
+    duplicate = _seed_aged_posting(db, title="Old Duplicate", status="duplicate", age_days=90)
+
+    store.purge_old_postings(path=db)
+
+    survivors = _fingerprints(db, "postings")
+    assert dismissed not in survivors
+    assert duplicate not in survivors
+
+
+def test_purge_never_touches_active_statuses(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("JOBAGENT_RETENTION_DAYS", raising=False)
+    db = str(tmp_path / "jobs.db")
+    store.init(db)
+    kept = [
+        _seed_aged_posting(db, title=f"Old {status}", status=status, age_days=365)
+        for status in ("applied", "interviewing", "closed")
+    ]
+
+    deleted = store.purge_old_postings(path=db)
+
+    assert deleted == (0, 0)
+    survivors = _fingerprints(db, "postings")
+    assert all(fp in survivors for fp in kept)
+
+
+def test_purge_keeps_recent_purgeable_postings(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("JOBAGENT_RETENTION_DAYS", raising=False)
+    db = str(tmp_path / "jobs.db")
+    store.init(db)
+    fp = _seed_aged_posting(db, title="Recent New", status="new", age_days=10)
+
+    deleted = store.purge_old_postings(path=db)
+
+    assert deleted == (0, 0)
+    assert fp in _fingerprints(db, "postings")
+
+
+def test_purge_respects_custom_retention_window(tmp_path: Path, monkeypatch) -> None:
+    # Window = 30 days: age 31 is purged, age 29 is retained (strict cutoff).
+    monkeypatch.setenv("JOBAGENT_RETENTION_DAYS", "30")
+    db = str(tmp_path / "jobs.db")
+    store.init(db)
+    old = _seed_aged_posting(db, title="Just Past", status="new", age_days=31)
+    recent = _seed_aged_posting(db, title="Just Inside", status="new", age_days=29)
+
+    store.purge_old_postings(path=db)
+
+    survivors = _fingerprints(db, "postings")
+    assert old not in survivors
+    assert recent in survivors

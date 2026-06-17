@@ -411,3 +411,42 @@ def test_degradation_context_passed_to_digest(tmp_path: Path, monkeypatch) -> No
 
     assert captured["failed_sources"] == failures
     assert captured["scoring"] == scoring
+
+
+# --- retention purge stage (FR-015) -----------------------------------------
+
+
+def test_successful_run_invokes_purge_stage(tmp_path: Path, monkeypatch) -> None:
+    """The retention purge runs as a pipeline stage on a successful run."""
+    _setup_db(tmp_path, monkeypatch)
+    _patch_stages(monkeypatch, digest_returns=True)
+
+    purge_calls: list[int] = []
+    monkeypatch.setattr(
+        store,
+        "purge_old_postings",
+        lambda *a, **k: purge_calls.append(1) or (0, 0),
+        raising=False,
+    )
+
+    _run_main_allow_exit(monkeypatch)
+
+    assert purge_calls, "purge stage should run on a successful pipeline run"
+
+
+def test_purge_failure_does_not_fail_the_run(tmp_path: Path, monkeypatch, capsys) -> None:
+    """Purge is post-send housekeeping: an exception in it must not abort an
+    already-delivered run -- exit stays 0 and RUN_SUCCESS still prints."""
+    _setup_db(tmp_path, monkeypatch)
+    _patch_stages(monkeypatch, digest_returns=True)
+
+    def boom(*a, **k):
+        raise RuntimeError("purge blew up")
+
+    monkeypatch.setattr(store, "purge_old_postings", boom, raising=False)
+
+    code = _run_main_allow_exit(monkeypatch)
+
+    assert code in (0, None)
+    out = capsys.readouterr().out
+    assert f"RUN_SUCCESS digest_date={store.digest_date()}" in out

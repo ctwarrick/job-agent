@@ -154,6 +154,21 @@ def main() -> None:
         failed_sources=failed_sources or None,
         detail=_degradation_summary(failed_sources, scoring),
     )
+
+    # Retention purge (FR-015): post-send housekeeping. It runs only after the
+    # digest is delivered and the run outcome is recorded, so a purge error can
+    # never block or fail an already-sent digest -- it is logged and swallowed
+    # rather than raised. Always logs so the 'purge' stage is visible in the
+    # run's logs (contracts/runtime-config.md minimum content).
+    try:
+        purged_postings, purged_apps = store.purge_old_postings()
+        print(
+            f"purge: deleted {purged_postings} postings, {purged_apps} applications "
+            "(status new/dismissed/duplicate past JOBAGENT_RETENTION_DAYS)"
+        )
+    except Exception as e:  # noqa: BLE001 -- housekeeping must not fail a sent run
+        print(f"purge: skipped due to error: {e}")
+
     print(f"RUN_SUCCESS digest_date={digest_date}")
 
 

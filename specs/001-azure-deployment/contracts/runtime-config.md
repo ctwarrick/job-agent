@@ -22,7 +22,7 @@ coordinated updates (see [deployment.md](deployment.md)).
 | `JOBAGENT_DATA_DIR` | **new** | yes (plain env, = share mount path) | `.` | path prefix for `jobs.db` + runtime files; default keeps local dev unchanged |
 | `JOBAGENT_TZ` | **new** | yes (plain env) | `America/Los_Angeles` | digest-date computation (stdlib `zoneinfo`); FR-002 timezone configurability |
 | `JOBAGENT_MAX_LLM_CALLS` | **new** | yes (plain env) | sensible cap (set in Bicep param) | per-run upper bound on scoring batches (FR-013) |
-| `JOBAGENT_RETENTION_DAYS` | **new** | optional | `60` | retention window for unloved postings (FR-015) |
+| `JOBAGENT_RETENTION_DAYS` | **new** | optional | `60` | retention window for postings (FR-015) |
 | `JOBAGENT_FORCE` | **new** | no | unset | `1` = bypass the skip-if-already-succeeded check on manual runs (FR-019); does **not** bypass the in-flight lock (FR-017) |
 
 Secret-valued variables are declared in the ACA job as Key Vault references
