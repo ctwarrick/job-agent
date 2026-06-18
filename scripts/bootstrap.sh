@@ -16,6 +16,12 @@
 #   - grant that identity Contributor + role-assignment rights, scoped to the
 #     resource group only (identity & access matrix, FR-022)
 #
+# It also registers the resource providers infra/main.bicep depends on, so a
+# fresh subscription does not fail the first deployment on an unregistered
+# provider (Microsoft.Insights did exactly that on the first real deploy).
+# Provider registration is subscription-wide and idempotent, so it is safe to
+# re-run and belongs in this one-time-per-environment setup.
+#
 # Inputs (env vars or flags — never hardcoded; nothing here is committed):
 #   AZURE_SUBSCRIPTION_ID   subscription to deploy into
 #   AZURE_TENANT_ID         tenant for the federated credential issuer
@@ -58,6 +64,24 @@ echo "Resource group:  $RESOURCE_GROUP ($LOCATION)"
 echo "Deploy identity: $IDENTITY_NAME"
 
 az account set --subscription "$SUBSCRIPTION_ID"
+
+# Register the resource providers infra/main.bicep declares resources under. A
+# fresh subscription may have some unregistered, which fails the deployment
+# (Microsoft.Insights bit the first real deploy). --wait blocks until each is
+# Registered so a deploy right after bootstrap can't race registration.
+# Microsoft.Authorization (RBAC) is always registered and is omitted on purpose.
+echo "Registering resource providers used by infra/main.bicep..."
+for ns in \
+  Microsoft.App \
+  Microsoft.Consumption \
+  Microsoft.Insights \
+  Microsoft.KeyVault \
+  Microsoft.ManagedIdentity \
+  Microsoft.OperationalInsights \
+  Microsoft.Storage; do
+  echo "  registering $ns..."
+  az provider register --namespace "$ns" --wait
+done
 
 echo "Creating resource group..."
 az group create \

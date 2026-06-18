@@ -47,7 +47,11 @@ LOCATION=westus2 \
 ```
 
 This creates the resource group and a user-assigned managed identity for
-future GitHub-OIDC deploys (US2). It is safe to re-run.
+future GitHub-OIDC deploys (US2), and registers the resource providers
+`infra/main.bicep` depends on (`Microsoft.App`, `Microsoft.Consumption`,
+`Microsoft.Insights`, `Microsoft.KeyVault`, `Microsoft.ManagedIdentity`,
+`Microsoft.OperationalInsights`, `Microsoft.Storage`) so step 3 does not fail on
+an unregistered provider. It is safe to re-run.
 
 ## 2. Build and push the image to ghcr.io (manual, interim)
 
