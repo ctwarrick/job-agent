@@ -115,6 +115,36 @@ step once enabled). Deployment also provisions a missed-deadline alert
 (email + SMS) if the daily digest hasn't run by the configured local
 deadline.
 
+## Deploy your own instance
+This is the maintainer's repo, but it is forkable. The full walkthrough is
+[`specs/001-azure-deployment/quickstart.md`](specs/001-azure-deployment/quickstart.md)
+(validation across every user story);
+[`docs/manual-deployment.md`](docs/manual-deployment.md) is the step-by-step
+deploy. What a fork must change:
+
+- **Your own subscription + tenant.** Pass them to `scripts/bootstrap.sh` with
+  your own `GITHUB_REPO` slug (`<you>/job-agent`) so the deploy identity's
+  federated credential trusts *your* fork. Bootstrap also registers the Azure
+  resource providers the template needs.
+- **Your own image.** Build and push to `ghcr.io/<you>/job-agent`, then make the
+  package public (or grant the Container Apps environment pull access).
+- **Your own alert receivers.** `ALERT_EMAIL`, `SMS_COUNTRY_CODE`, and
+  `SMS_PHONE` are required (no defaults) and are personal data — export them at
+  deploy time (or as your fork's repo secrets for CI), never in
+  `infra/main.bicepparam`. They wire the missed-deadline and cost-budget alerts.
+- **Your own runtime files + secrets.** Upload your git-ignored `profile.md`,
+  `screening_prompt.md`, `registry.txt`, and `filter.toml` to the Files share,
+  and set the seven Key Vault secrets (`anthropic-api-key`, `smtp-host`/`-port`/
+  `-user`/`-pass`, `digest-to`, `salary-floor`). None of these are ever committed.
+- **CI (optional).** To activate push-to-`main` deploys, record your fork's OIDC
+  `client-id` / `tenant-id` / `subscription-id` as repo secrets per
+  [`docs/ci-cd.md`](docs/ci-cd.md).
+
+Honesty check: the maintainer's end-to-end Azure validation — the required alert
+drill and the on-demand-trigger check in quickstart.md §US3 — is still pending,
+so treat a fresh fork's first production run as unvalidated until you complete
+that drill yourself.
+
 ## Adding a company
 Find their careers page, read the redirect URL:
   boards.greenhouse.io/SLUG  -> `greenhouse  SLUG`
