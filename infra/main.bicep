@@ -95,6 +95,12 @@ param smsPhone string
 @description('Local delivery deadline hour (0-23) in tz; the missed-deadline alert evaluates as missed once local time passes this hour with no RUN_SUCCESS for the day. A deadline change is a redeploy, not a query edit (FR-002).')
 param deliveryDeadlineHourLocal int = 6
 
+@description('Monthly cloud spend ceiling in account currency for the cost budget; alerts fire at 50% and 80% of this. The $50 figure is the constitutional all-in ceiling (FR-014, SC-002); the Anthropic/LLM half is a separate console budget per quickstart.md Bootstrap.')
+param budgetAmount int = 50
+
+@description('Cost-budget period start. A Microsoft.Consumption/budgets resource requires the first of a month (and, for a Monthly grain, the current month); this defaults to the first of the current UTC month so a redeploy never trips that rule. The rule is enforced at deploy, not by az bicep build.')
+param budgetStartDate string = '${utcNow('yyyy-MM')}-01T00:00:00Z'
+
 // ---------------------------------------------------------------------------
 // Log Analytics workspace — run logs (FR-007) and Container Apps env sink
 // ---------------------------------------------------------------------------
@@ -528,6 +534,65 @@ resource missedDeadlineAlert 'Microsoft.Insights/scheduledQueryRules@2022-06-15'
 }
 
 // ---------------------------------------------------------------------------
+// Monthly cost budget — spend visibility (FR-014, SC-002)
+//
+// Scoped to this resource group (the deployment scope), so it tracks the job's
+// cloud spend. Alerts at 50% and 80% of budgetAmount through the SAME action
+// group as the missed-deadline page, so a spend warning reaches the maintainer
+// by email + SMS with no second channel to wire. This covers the cloud half of
+// the $50 all-in ceiling; the Anthropic/LLM half is a separate console budget,
+// the documented manual step in quickstart.md Bootstrap.
+//
+// startDate must be the first of the (current) month per the Consumption rule;
+// budgetStartDate defaults to that. That rule is enforced at DEPLOY, not by
+// `az bicep build` — a hand-set bad date fails at T046, not validate-infra.sh.
+// ---------------------------------------------------------------------------
+
+resource budget 'Microsoft.Consumption/budgets@2023-05-01' = {
+  name: '${namePrefix}-monthly'
+  properties: {
+    category: 'Cost'
+    amount: budgetAmount
+    timeGrain: 'Monthly'
+    timePeriod: {
+      startDate: budgetStartDate
+    }
+    // contactGroups reuses the action group (email + SMS); contactEmails is
+    // marked required by the Bicep budget type (a known type inaccuracy:
+    // contactGroups alone satisfies the API), so alertEmail is repeated here to
+    // keep the deploy warning-free and unambiguously valid. A budget threshold
+    // crossing may therefore double-send email (action group + direct) — rare
+    // and accepted over a possibly-rejected empty contactEmails array.
+    notifications: {
+      Actual_GreaterThan_50_Percent: {
+        enabled: true
+        operator: 'GreaterThan'
+        threshold: 50
+        thresholdType: 'Actual'
+        contactEmails: [
+          alertEmail
+        ]
+        contactGroups: [
+          actionGroup.id
+        ]
+      }
+      Actual_GreaterThan_80_Percent: {
+        enabled: true
+        operator: 'GreaterThan'
+        threshold: 80
+        thresholdType: 'Actual'
+        contactEmails: [
+          alertEmail
+        ]
+        contactGroups: [
+          actionGroup.id
+        ]
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Outputs
 // ---------------------------------------------------------------------------
 
@@ -545,3 +610,4 @@ output keyVaultName string = keyVault.name
 output logAnalyticsWorkspaceName string = logAnalytics.name
 output actionGroupName string = actionGroup.name
 output missedDeadlineAlertName string = missedDeadlineAlert.name
+output budgetName string = budget.name

@@ -13,9 +13,10 @@
 // variable fails the compile loudly (BCP427) rather than building a
 // receiver-less alert.
 //
-// DEVIATION from tasks.md T023: budgetAmount is intentionally omitted. The
-// Microsoft.Consumption/budgets resource is Polish-phase (T043), not part of
-// this MVP's main.bicep, so there is no corresponding parameter to set yet.
+// budgetAmount is the cloud-side monthly ceiling for the Microsoft.Consumption
+// budget (T043); budgetStartDate is left to its in-template default (first of
+// the current UTC month) so the Consumption first-of-month rule is never
+// tripped by a stale committed date.
 
 using 'main.bicep'
 
@@ -26,6 +27,7 @@ param tz = 'America/Los_Angeles'
 param maxPostingsPerRun = 200
 param maxCostPerRun = '5.00'
 param retentionDays = 60
+param budgetAmount = 50
 
 // Secret action-group receivers — values read from the environment at compile
 // time, never committed (see header). No default: a missing variable fails the
