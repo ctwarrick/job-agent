@@ -15,6 +15,9 @@
 #     repo:<owner>/job-agent:ref:refs/heads/main
 #   - grant that identity Contributor + role-assignment rights, scoped to the
 #     resource group only (identity & access matrix, FR-022)
+#   - grant the signed-in maintainer Key Vault Secrets Officer on the resource
+#     group so they can set the vault secrets after the deploy (the deploy
+#     identity's Contributor is control-plane only and cannot set secret values)
 #
 # It also registers the resource providers infra/main.bicep depends on, so a
 # fresh subscription does not fail the first deployment on an unregistered
@@ -154,6 +157,38 @@ else
     --assignee-object-id "$IDENTITY_PRINCIPAL_ID" \
     --assignee-principal-type ServicePrincipal \
     --role "User Access Administrator" \
+    --scope "$RG_SCOPE" \
+    --output none
+fi
+
+echo "Granting Key Vault Secrets Officer to the maintainer (for 'az keyvault secret set')..."
+# The human who runs 'az keyvault secret set' after the deploy needs data-plane
+# access to the RBAC-authorized vault. Contributor (granted to the deploy
+# identity above) is control-plane only and cannot set secret values, so grant
+# the signed-in maintainer "Key Vault Secrets Officer" at RG scope — it inherits
+# to the vault the deploy creates later. Override with KV_SECRETS_ADMIN_OBJECT_ID
+# for a non-interactive (service-principal) bootstrap.
+SECRETS_ADMIN_OBJECT_ID="${KV_SECRETS_ADMIN_OBJECT_ID:-}"
+if [[ -z "$SECRETS_ADMIN_OBJECT_ID" ]]; then
+  SECRETS_ADMIN_OBJECT_ID="$(az ad signed-in-user show --query id -o tsv 2>/dev/null || true)"
+fi
+if [[ -z "$SECRETS_ADMIN_OBJECT_ID" ]]; then
+  echo "  WARNING: no signed-in user and KV_SECRETS_ADMIN_OBJECT_ID unset — skipping."
+  echo "  Grant it yourself before setting secrets:"
+  echo "    az role assignment create --assignee-object-id <your-object-id> \\"
+  echo "      --assignee-principal-type User \\"
+  echo "      --role 'Key Vault Secrets Officer' --scope '$RG_SCOPE'"
+elif az role assignment list \
+    --assignee "$SECRETS_ADMIN_OBJECT_ID" \
+    --role "Key Vault Secrets Officer" \
+    --scope "$RG_SCOPE" \
+    --output tsv | grep -q .; then
+  echo "  already granted, skipping"
+else
+  az role assignment create \
+    --assignee-object-id "$SECRETS_ADMIN_OBJECT_ID" \
+    --assignee-principal-type User \
+    --role "Key Vault Secrets Officer" \
     --scope "$RG_SCOPE" \
     --output none
 fi

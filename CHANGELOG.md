@@ -6,6 +6,49 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it reaches 1.0.0. Before 1.0.0, minor versions may include breaking changes.
 
+## [1.0.0] - 2026-06-22
+
+First stable release. The fetch → score → digest pipeline runs unattended on
+Azure Container Apps with CI/CD, missed-deadline + cost alerting, per-run and
+retention bounds, and a documented fork-and-deploy path.
+
+### Added
+
+- Retention purge: each run drops postings (and their `applications` rows) older
+  than the configured retention window, keeping `jobs.db` bounded over time.
+- Cost budget alerting: a `Microsoft.Consumption/budgets` resource notifies the
+  configured receivers as monthly Azure spend crosses its thresholds,
+  complementing the per-run scoring cost cap.
+- `scripts/bootstrap.sh` registers the Azure resource providers
+  `infra/main.bicep` depends on (so a fresh subscription's first deploy doesn't
+  fail on an unregistered provider) and grants the signed-in maintainer *Key
+  Vault Secrets Officer* on the resource group, so the post-deploy
+  `az keyvault secret set` commands succeed against the RBAC-authorized vault
+  (override the principal with `KV_SECRETS_ADMIN_OBJECT_ID`).
+- README "Deploy your own instance" fork guide: what a fork must change
+  (subscription/tenant, image, alert receivers, runtime files + secrets,
+  optional CI).
+
+### Changed
+
+- Documentation separates forker setup from maintainer acceptance validation:
+  `docs/manual-deployment.md` (+ `docs/ci-cd.md`) is the clean step-by-step
+  setup path, while `specs/001-azure-deployment/quickstart.md` is the
+  maintainer's per-user-story acceptance validation and is no longer presented
+  as a fork prerequisite — a new instance no longer has to run the overnight
+  alert drill to be usable. Setup steps live in one place, not duplicated across
+  both documents.
+
+### Fixed
+
+- Run/force-run docs no longer show the broken
+  `az containerapp job start --env-vars JOBAGENT_FORCE=1` form, which replaces
+  the whole execution template (dropping the image, secret references, and
+  `/data` mount). They now use the merge-safe `job update --set-env-vars` →
+  `start` → `update --remove-env-vars` sequence.
+- The US3 alert-drill instructions no longer reference a non-existent Key Vault
+  secret "rename"; the documented drill parks the schedule for one night.
+
 ## [0.2.1] - 2026-06-13
 
 ### Fixed

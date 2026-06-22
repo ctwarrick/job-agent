@@ -1,18 +1,19 @@
-# Manual MVP Deployment
+# Manual Deployment
 
-This walkthrough is the **interim, pre-CI** path to a working overnight digest:
-bootstrap → build and push the image by hand → deploy `infra/main.bicep` →
-set secrets → upload runtime files → trigger a smoke run.
+This walkthrough stands up a working overnight digest by hand, no CI required:
+bootstrap → build and push the image → deploy `infra/main.bicep` → set secrets →
+upload runtime files → trigger a smoke run. To activate push-to-`main`
+auto-deploys instead (or in addition), see [`docs/ci-cd.md`](ci-cd.md); this
+manual path stays the route for the first bootstrap and for disaster recovery.
 
-**MVP honesty check**: at this stage there is no GitHub Actions workflow yet
-(US2) — you build, push, and deploy by hand. Platform alerting (US3) *is* now
-part of `infra/main.bicep`: deploying in step 3 with the receiver parameters
-creates the action group + missed-deadline alert rule, so a silently failed
-night pages you (email + SMS) by ~06:30. Confirm it end-to-end with the
-**required** US3 alert drill in
-[`quickstart.md`](../specs/001-azure-deployment/quickstart.md) §US3 (needs Azure
-access) before relying on it; until then, also watch
-`az containerapp job logs show` after any change.
+Platform alerting deploys with the infrastructure: step 3 creates the action
+group + missed-deadline alert rule from the receiver parameters, so a silently
+failed night pages you (email + SMS) by ~06:30. You can confirm your own
+receivers instantly — without waiting out a missed night — with
+`az monitor action-group test-notifications create --action-group <name> -g <rg>
+--alert-type logalertv2`. (The maintainer's end-to-end acceptance drill is in
+[`quickstart.md`](../specs/001-azure-deployment/quickstart.md) §US3 and is not
+required to run your own instance.)
 
 For background, see:
 
@@ -21,7 +22,7 @@ For background, see:
 - [`specs/001-azure-deployment/contracts/runtime-config.md`](../specs/001-azure-deployment/contracts/runtime-config.md)
   — env vars, exit codes, log markers
 - [`specs/001-azure-deployment/quickstart.md`](../specs/001-azure-deployment/quickstart.md)
-  — full validation walkthrough across all user stories
+  — maintainer acceptance validation across all user stories (needs Azure access)
 
 ## Prerequisites
 
@@ -51,11 +52,15 @@ future GitHub-OIDC deploys (US2), and registers the resource providers
 `infra/main.bicep` depends on (`Microsoft.App`, `Microsoft.Consumption`,
 `Microsoft.Insights`, `Microsoft.KeyVault`, `Microsoft.ManagedIdentity`,
 `Microsoft.OperationalInsights`, `Microsoft.Storage`) so step 3 does not fail on
-an unregistered provider. It is safe to re-run.
+an unregistered provider. It also grants you (the signed-in maintainer) *Key
+Vault Secrets Officer* on the resource group, so the `az keyvault secret set`
+commands in step 4 succeed against the RBAC-authorized vault the deploy creates.
+It is safe to re-run.
 
-## 2. Build and push the image to ghcr.io (manual, interim)
+## 2. Build and push the image to ghcr.io
 
-Until US2's CI pipeline lands, build and push the image yourself:
+Build and push the image yourself (the CI workflow does this automatically once
+activated — see [`docs/ci-cd.md`](ci-cd.md)):
 
 ```bash
 docker build -t ghcr.io/<your-github-username>/job-agent:manual .
@@ -226,13 +231,15 @@ bypasses the "already succeeded today" skip but not the in-flight lock.
 - **US2 is implemented** — [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml)
   replaces steps 2–3's manual build/push/deploy with a `test → build → deploy`
   GitHub Actions workflow on every push to `main`. Activate it (one-time repo
-  secrets + the validation drill) per [docs/ci-cd.md](ci-cd.md). Until you
-  activate it, this manual path remains the steady state.
+  secrets) per [docs/ci-cd.md](ci-cd.md). Until you activate it, this manual path
+  remains the steady state.
 - **US3 alerting is implemented** — `infra/main.bicep` now contains the action
   group + scheduled query alert rule, so a missed morning digest pages the
   maintainer (email + SMS) by ~06:30 instead of being noticed (or not) the next
-  time someone checks email. It deploys with step 3; the **required** alert
-  drill (quickstart §US3) is the remaining validation and needs Azure access.
+  time someone checks email. It deploys with step 3; verify your own receivers
+  with the instant `test-notifications` command shown above. (The maintainer's
+  end-to-end alert drill in quickstart §US3 is acceptance validation, not a setup
+  requirement.)
 
 Until US2 is activated, treat this manual path as the steady state: redeploy by
 repeating steps 2–3 (rebuild/push a new tag, redeploy with the new `imageTag`),

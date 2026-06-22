@@ -116,16 +116,18 @@ step once enabled). Deployment also provisions a missed-deadline alert
 deadline.
 
 ## Deploy your own instance
-This is the maintainer's repo, but it is forkable. The full walkthrough is
+This is the maintainer's repo, but it is forkable. The step-by-step setup is
+[`docs/manual-deployment.md`](docs/manual-deployment.md) (manual deploy), then
+[`docs/ci-cd.md`](docs/ci-cd.md) to activate push-to-`main` auto-deploys;
 [`specs/001-azure-deployment/quickstart.md`](specs/001-azure-deployment/quickstart.md)
-(validation across every user story);
-[`docs/manual-deployment.md`](docs/manual-deployment.md) is the step-by-step
-deploy. What a fork must change:
+is the maintainer's acceptance validation, not part of fork setup. What a fork
+must change:
 
 - **Your own subscription + tenant.** Pass them to `scripts/bootstrap.sh` with
   your own `GITHUB_REPO` slug (`<you>/job-agent`) so the deploy identity's
   federated credential trusts *your* fork. Bootstrap also registers the Azure
-  resource providers the template needs.
+  resource providers the template needs and grants you Key Vault Secrets Officer
+  so the secret-set step below works against the RBAC-authorized vault.
 - **Your own image.** Build and push to `ghcr.io/<you>/job-agent`, then make the
   package public (or grant the Container Apps environment pull access).
 - **Your own alert receivers.** `ALERT_EMAIL`, `SMS_COUNTRY_CODE`, and
@@ -140,10 +142,11 @@ deploy. What a fork must change:
   `client-id` / `tenant-id` / `subscription-id` as repo secrets per
   [`docs/ci-cd.md`](docs/ci-cd.md).
 
-Honesty check: the maintainer's end-to-end Azure validation — the required alert
-drill and the on-demand-trigger check in quickstart.md §US3 — is still pending,
-so treat a fresh fork's first production run as unvalidated until you complete
-that drill yourself.
+Alerting deploys with the infrastructure, so a silently failed night pages you
+(email + SMS) by ~06:30. Verify your own receivers in seconds with the
+action-group `test-notifications` command in
+[`docs/manual-deployment.md`](docs/manual-deployment.md) — you don't need to run
+the maintainer's overnight alert drill to use the bot.
 
 ## Adding a company
 Find their careers page, read the redirect URL:

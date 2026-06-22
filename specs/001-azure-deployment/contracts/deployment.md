@@ -153,11 +153,17 @@ Whole chain must fit SC-003's 15-minute budget.
 ## On-demand trigger (FR-019)
 
 ```bash
-az containerapp job start -n <job> -g <rg>                       # respects skip-if-succeeded
-az containerapp job start -n <job> -g <rg> \
-  --env-vars JOBAGENT_FORCE=1                                    # force full re-run
-az containerapp job start -n <job> -g <rg> \
-  --env-vars JOBAGENT_FORCE=1 JOBAGENT_MAX_POSTINGS_PER_RUN=1000 # first-run backlog backfill
+az containerapp job start -n <job> -g <rg>   # respects skip-if-succeeded
+
+# Force a full re-run after a same-day success. NOTE: `--env-vars` on `job
+# start` REPLACES the execution template (drops the image, secret refs, and
+# /data mount), so use the merge-safe update/start/cleanup sequence:
+az containerapp job update -n <job> -g <rg> --set-env-vars JOBAGENT_FORCE=1
+az containerapp job start  -n <job> -g <rg>
+az containerapp job update -n <job> -g <rg> --remove-env-vars JOBAGENT_FORCE
+
+# First-run backlog backfill: same sequence with an extra cap on the update —
+#   --set-env-vars JOBAGENT_FORCE=1 JOBAGENT_MAX_POSTINGS_PER_RUN=1000
 ```
 
 RBAC-gated by `microsoft.app/jobs/start/action` — held only by the maintainer per
