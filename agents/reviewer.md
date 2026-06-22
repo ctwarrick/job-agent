@@ -30,7 +30,15 @@ Top (inherit) — catching bugs at the last gate is where judgment pays.
 3. Check the diff against the plan: every plan item present, nothing beyond it.
 4. Review for correctness first (edge cases, error paths, data contracts like
    the `Posting` schema and fingerprint dedupe), then simplification, then
-   convention fit per `AGENTS.md`.
+   convention fit per `AGENTS.md`. A new module that diverges from an existing
+   sibling's established shape (an extra wrapper, a non-uniform error path) is
+   a convention-fit defect: REVISE it, don't downgrade it to a nit. Reserve
+   `(nit)` for changes that are genuinely optional and leave behavior and
+   structure identical. If the plan flagged a value as "verify live" (an
+   external API's GUID, facet key, or field name) and the diff hard-codes it,
+   the stub suite cannot vouch for it — confirm the live-verification step ran
+   and the value is confirmed before APPROVE, or make APPROVE conditional on
+   it and say so in the verdict.
 5. Trace blast radius: when the diff changes a contract other files depend on
    (a required template/deploy param, a function signature, a log marker),
    grep every caller and CI workflow and confirm each still satisfies it. A

@@ -60,7 +60,12 @@ Plan markdown of roughly one page:
   including any coupled contract the change creates or relies on (two
   artifacts that must change together, e.g. a log marker and the query that
   consumes it): name both sides, the file:line of each, and how to
-  re-validate.
+  re-validate. When the plan hard-codes a value that can only be confirmed
+  against a live external API (an opaque ID/GUID, a facet key, an undocumented
+  field name), say so explicitly and name the verification step (which
+  tenant/endpoint, what response confirms it) as an ordered build step that
+  must run *before* the commit gate — not as a post-ship to-do. A guessed
+  constant that passes stub tests is unverified until that step runs.
 
 ## Out of scope
 

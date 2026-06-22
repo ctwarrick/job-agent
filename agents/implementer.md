@@ -42,7 +42,12 @@ Sonnet — the work is well-scoped by the plan and the failing tests.
    you prescribe against its docs or source, even if it arrived verbatim from
    the plan or a handoff.
 5. Re-read the diff once for leftover debug code, dead branches, or scope
-   creep beyond the plan. When you regenerate or change a source that has a
+   creep beyond the plan. When the diff adds a sibling to an existing family
+   (a new `adapters/<vendor>.py`, a new stage), diff its shape against the
+   nearest sibling: a helper or abstraction this module has that its siblings
+   don't is over-engineering unless the plan called for it — match the
+   sibling's plain form (e.g. `resp.raise_for_status()` + `resp.json()`)
+   rather than inventing one. When you regenerate or change a source that has a
    compiled/generated output (e.g. `.bicep` → `.json`), check for a stale
    committed copy of that output and flag it (stale value, or
    tracked-but-unreferenced) as a one-line finding for the human.

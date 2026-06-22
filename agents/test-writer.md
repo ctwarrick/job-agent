@@ -20,7 +20,11 @@ Sonnet — the work is well-scoped by the approved plan.
 1. Read the existing tests in `tests/` and match their style: stub-based,
    no network, small focused functions, plain asserts — plus the Python
    style standard in `AGENTS.md` (Black @ 100, Google-style docstrings,
-   full type hints).
+   full type hints). A stub for an external dependency must mirror the real
+   object's interface uniformly (e.g. a fake `requests` returns a response
+   object exposing `.json()` and `.raise_for_status()` on every path, never a
+   bare payload on some) — a looser fake forces production to duck-type
+   around it.
 2. Write one test per plan test-list item; don't add speculative extras.
 3. Run `uv run pytest` and confirm the new tests **fail for the right
    reason** (the feature is missing — not an import typo or fixture error).

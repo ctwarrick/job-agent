@@ -28,6 +28,8 @@ job-agent/
       __init__.py
       greenhouse.py    public Greenhouse board API
       lever.py         public Lever postings API
+      workday.py       Workday CXS (Career Site eXperience Service) API
+  companies.toml.example  template for companies.toml (Workday tenant -> display name)
   tests/               pytest suite
   infra/               Azure Bicep (Container Apps Job, Key Vault, storage)
   scripts/             deployment bootstrap scripts
@@ -64,6 +66,9 @@ Optional env vars:
   used for the cost cap and the `SCORE_SUMMARY` estimate (defaults `3`, `15`,
   `3.75`, `0.30` — the `claude-sonnet-4-6` rates). Override when the model or
   pricing changes.
+- `JOBAGENT_MAX_POSTINGS_PER_EMPLOYER` — optional cap on postings fetched per
+  tenant by the Workday adapter (some boards report 100+ open postings for a
+  single tenant).
 - `JOBAGENT_FORCE` — set to `1` to re-run a digest_date that already
   succeeded today.
 - `DIGEST_MIN_SKILLS` / `DIGEST_MAX_RISK` — digest thresholds (defaults `6`
@@ -150,11 +155,15 @@ the maintainer's overnight alert drill to use the bot.
 
 ## Adding a company
 Find their careers page, read the redirect URL:
-  boards.greenhouse.io/SLUG  -> `greenhouse  SLUG`
-  jobs.lever.co/SLUG         -> `lever  SLUG`
-Add a line to registry.txt. Done.
+  boards.greenhouse.io/SLUG               -> `greenhouse  SLUG`
+  jobs.lever.co/SLUG                      -> `lever  SLUG`
+  {tenant}.{host}.myworkdayjobs.com/{site} -> `workday  tenant:site:host`
+Add a line to registry.txt. For Workday, also add an optional
+`[display_names]` entry for the tenant in `companies.toml` (copy
+`companies.toml.example`) so the digest shows a real company name instead of
+the tenant slug. Done.
 
-## Adding a new ATS (Ashby, Workable, SmartRecruiters, Workday...)
+## Adding a new ATS (Ashby, Workable, SmartRecruiters...)
 Write `src/job_agent/adapters/<vendor>.py` exposing
 `fetch(slug) -> list[Posting]`, then register it in `ADAPTERS` in fetch.py.
 The scorer needs no changes.

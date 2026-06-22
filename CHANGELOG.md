@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it reaches 1.0.0. Before 1.0.0, minor versions may include breaking changes.
 
+## [1.1.0] - 2026-06-22
+
+### Added
+
+- Workday adapter (`src/job_agent/adapters/workday.py`): fetches open US
+  postings from Workday CXS (Career Site eXperience Service) tenants. A
+  single compound `tenant:site:host` slug (e.g.
+  `chrobinson:CHRobinson:wd5`) in `registry.txt` keeps the
+  `fetch(slug) -> list[Posting]` adapter contract unchanged; the module
+  splits it internally. Two round-trips per posting: a paginated `POST
+  .../wday/cxs/{tenant}/{site}/jobs` (scoped to a US country facet) for the
+  list, then a `GET` per posting for the full description. Registered as
+  `"workday"` in `fetch.py`'s `ADAPTERS` dispatch table alongside
+  `greenhouse` and `lever`.
+- `JOBAGENT_MAX_POSTINGS_PER_EMPLOYER`: optional per-tenant cap on postings
+  fetched per run, read by the Workday adapter (large boards can report
+  100+ open postings for a single tenant).
+- `companies.toml.example`: committed template for `companies.toml`
+  (git-ignored, personal), which maps Workday tenant slugs to display
+  company names for the digest. A tenant with no entry, or a missing file,
+  falls back open to the tenant slug itself, since company feeds the
+  dedupe fingerprint (`schema.py`) and must never be empty.
+
 ## [1.0.0] - 2026-06-22
 
 First stable release. The fetch → score → digest pipeline runs unattended on
