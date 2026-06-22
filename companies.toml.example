@@ -1,0 +1,12 @@
+# companies.toml — Workday tenant display-name overrides.
+#
+# Copy this file to `companies.toml` (git-ignored) and tune it to your
+# search. The Workday adapter (src/job_agent/adapters/workday.py) resolves
+# each tenant slug from registry.txt (e.g. "chrobinson") to a human-readable
+# company name for the digest. A tenant with no entry here, or a missing
+# file entirely, falls back open to the tenant slug itself -- company feeds
+# the dedupe fingerprint (schema.py), so keep this mapping stable once set.
+
+[display_names]
+chrobinson = "C.H. Robinson"
+msd = "Merck"
