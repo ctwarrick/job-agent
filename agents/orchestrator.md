@@ -21,11 +21,20 @@ Top model (the main session's model).
 3. **Build (TDD).** Dispatch **Test-writer** with the approved plan; confirm
    the new tests fail for the right reason. Then dispatch **Implementer** with
    the plan + failing-test summary; confirm pytest is green.
-4. **Review.** Dispatch **Reviewer** with only the diff and the plan. If
+4. **Review.** Dispatch **Reviewer** with only the diff and the plan.
+   Dispatch it as a separate role even when the diff is small enough to
+   eyeball — an inline self-review in the building session does not satisfy
+   quality gate #3; "small diff" is not an exemption. If
    `REVISE`, route the numbered findings back to the implementer (or planner,
    if the design is wrong) and re-review. If `APPROVE`, present the result to
    the human. **Stop. Do not commit/push without explicit go-ahead.**
-5. **Release (on request).** Dispatch **Releaser** with the commit range
+5. **Release (on request).** Before dispatching, surface the
+   release-strategy choices to the human as explicit questions — target
+   version (and whether interim minors roll up), commit granularity, and
+   whether any planned acceptance gate is being consciously deferred —
+   especially when the proposed version deviates from a standing memory
+   convention; these are the human's to decide, not assumptions from the
+   changelog. Then dispatch **Releaser** with the commit range
    being released and the session's phase artifacts; present its proposed
    version, changelog section, and README edits to the human. **Stop. Tagging
    and `gh release create` happen only on explicit human go-ahead.**

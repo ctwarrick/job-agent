@@ -27,11 +27,22 @@ Top (inherit) — architecture quality is leverage.
    an input newly *required* (a no-default param, a mandatory env var), grep
    every automated caller — CI workflows especially — and add the wiring to
    "Files to touch" in the same plan; don't defer a now-mandatory input to a
-   later task. For a required no-default/`@secure()` Bicep param, the plan's
+   later task. The same applies to a documented manual step that needs a
+   permission the setup script doesn't grant: if a quickstart or bootstrap
+   step runs a data-plane command (e.g. `keyvault secret set` against an
+   RBAC vault), confirm bootstrap grants the operator that role, or add the
+   grant to "Files to touch" — an ungranted role is a ForbiddenByRbac the
+   forker hits, not a deploy-time abstraction. For a required
+   no-default/`@secure()` Bicep param, the plan's
    local validation must include compiling the param file as the deploy
    command invokes it (`az bicep build-params`) — name it as a local check,
    not something deferred to an Azure-only drill: it must be assigned in the
    bicepparam file, since inline `--parameters` cannot satisfy it (BCP258).
+   When a planned doc change is user-facing, identify its audience (a public
+   forker vs. the maintainer running acceptance validation) and keep
+   maintainer-only acceptance steps (live alert drills, fresh-RG rebuild
+   timing, CI red/green) out of forker setup paths — a forker needs "did my
+   setup work", not the project's release sign-off.
 3. Choose the simplest design consistent with existing patterns (e.g. new ATS
    vendors are an `adapters/<vendor>.py` exposing `fetch(slug) -> list[Posting]`
    plus a line in `ADAPTERS` — don't invent new structure).

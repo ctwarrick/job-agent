@@ -41,7 +41,12 @@ Top (inherit) — catching bugs at the last gate is where judgment pays.
    deployment ... what-if` if an Azure target is reachable) and confirm it
    succeeds — a required no-default/`@secure()` param supplied via inline
    `--parameters` instead of in the bicepparam file is BCP258, and a REVISE
-   finding even when every caller "passes" it.
+   finding even when every caller "passes" it. When the diff is a doc
+   change that ships or edits a CLI command a user will run (az/gh/docker),
+   verify the command's *shape* against its tool docs, not just its prose —
+   a flag that silently replaces rather than merges state (e.g.
+   `containerapp job start --env-vars` replacing the whole template) is a
+   REVISE finding even when the surrounding edit looks cosmetic.
 6. Check no sensitive file (`profile.md`, `screening_prompt.md`,
    `registry.txt`, `jobs.db`) is touched, quoted, or newly committed.
 
