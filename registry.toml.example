@@ -1,0 +1,46 @@
+# registry.toml.example — source registry schema (committed reference).
+#
+# Copy to `registry.toml` (git-ignored) and fill in your real targets. One
+# [[source]] table per ATS board. Loaded and validated by job_agent.registry;
+# malformed config fails loud before any fetch. Inline `#` comments are fine.
+#
+# Fields:
+#   vendor   (required)  one of: greenhouse | lever | workday | icims
+#   slug     (greenhouse/lever)  the board slug
+#   tenant   (workday/icims)     the tenant
+#   site     (workday)           the Workday site
+#   host     (workday: required wd5/wd1; icims: optional custom domain)
+#   name     (optional)  display company name (see note)
+#   enabled  (optional, default true)  set false to disable without deleting
+#   max_per_employer (optional, int)  reserved; not yet wired
+#
+# Note: `name` is captured but not yet authoritative — adapters still resolve
+# the digest company via companies.toml this release. Keep `name` equal to the
+# source's current effective company so future wiring doesn't change dedupe.
+
+# --- Greenhouse: boards-api.greenhouse.io/v1/boards/{slug} ---
+[[source]]
+vendor = "greenhouse"
+slug   = "stripe"
+
+# --- Lever: api.lever.co/v0/postings/{slug} ---
+[[source]]
+vendor = "lever"
+slug   = "example-co"
+
+# --- Workday: {tenant}.{host}.myworkdayjobs.com/wday/cxs/{tenant}/{site} ---
+# Read tenant/site/host off the careers URL. Slug traps are common: the tenant
+# often differs from the brand name, and host is wd1 vs wd5 per tenant.
+[[source]]
+vendor = "workday"
+name   = "C.H. Robinson"
+tenant = "chrobinson"
+site   = "CHRobinson"
+host   = "wd5"
+
+# --- iCIMS (Jibe): https://{host}/api/jobs ; host defaults to {tenant}.icims.com ---
+[[source]]
+vendor = "icims"
+tenant = "sig"
+host   = "careers.sig.com"
+# enabled = false

@@ -22,5 +22,6 @@ plans
 profile.md
 screening_prompt.md
 registry.txt
+registry.toml
 filter.toml
 companies.toml
