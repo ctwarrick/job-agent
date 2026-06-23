@@ -162,5 +162,5 @@ Principles:
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/002-scoring-spend-efficiency/plan.md
+at specs/003-icims-adapter/plan.md
 <!-- SPECKIT END -->
