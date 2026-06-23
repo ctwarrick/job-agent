@@ -139,18 +139,19 @@ def fetch(slug: str, *, timeout: int = 20) -> list[Posting]:
             job = item.get("data") or {}
             if not _is_us(job.get("country_code", "")):
                 continue
-            postings.append(
-                normalize(
-                    source="icims",
-                    company=company,
-                    external_id=job.get("req_id", ""),
-                    title=job.get("title", ""),
-                    location=job.get("full_location") or job.get("location_name", ""),
-                    description=job.get("description", ""),
-                    url=job.get("apply_url", ""),
-                    posted_at=job.get("posted_date"),
-                )
+            posting = normalize(
+                source="icims",
+                company=company,
+                external_id=job.get("req_id", ""),
+                title=job.get("title", ""),
+                location=job.get("full_location") or job.get("location_name", ""),
+                description=job.get("description", ""),
+                url=job.get("apply_url", ""),
+                posted_at=job.get("posted_date"),
             )
+            if not posting.description:
+                continue  # scorer needs description text -> exclude, don't score empty
+            postings.append(posting)
             if cap is not None and len(postings) >= cap:
                 return postings[:cap]  # cap reached -> stop, do not page on
 

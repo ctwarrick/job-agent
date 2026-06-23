@@ -233,3 +233,37 @@ def test_cap_unset_returns_all_from_source(fake_requests, monkeypatch) -> None:
     postings = icims.fetch(SLUG)
 
     assert len(postings) == 7
+
+
+# --- US3 T018: resilience + missing-description handling ------------------
+
+
+def test_http_error_propagates_so_run_records_failure(fake_requests) -> None:
+    # The adapter raises; fetch.py's per-source try/except contains it so the
+    # overall run is not aborted (Constitution V).
+    fake_requests.get_responses = [_FakeResponse({}, status_ok=False)]
+
+    with pytest.raises(real_requests.HTTPError):
+        icims.fetch(SLUG)
+
+
+def test_malformed_response_returns_empty_without_raising(fake_requests) -> None:
+    # A response with no "jobs" is treated as an empty board, not an error.
+    fake_requests.get_responses = [{}]
+
+    assert icims.fetch(SLUG) == []
+
+
+def test_missing_description_posting_is_excluded(fake_requests) -> None:
+    # The scorer needs description text, so a posting with none is dropped
+    # rather than scored empty (data-model.md).
+    jobs = [
+        _job(req_id="1", description="<p>Real description.</p>"),
+        _job(req_id="2", description=""),  # excluded
+        _job(req_id="3", description="   "),  # whitespace-only -> excluded
+    ]
+    fake_requests.get_responses = [_page(3, jobs)]
+
+    postings = icims.fetch(SLUG)
+
+    assert {p.external_id for p in postings} == {"1"}

@@ -96,19 +96,19 @@ sources that succeeded (Constitution V).
 **Independent test**: simulate a tenant raising a network/parse error; the
 overall fetch continues and the failure is visible.
 
-- [ ] T018 [US3] In `tests/test_icims.py`, test a single-tenant network/parse
+- [X] T018 [US3] In `tests/test_icims.py`, test a single-tenant network/parse
   error is contained (returns empty / raises-caught, run not aborted) and a
   missing-description posting is excluded rather than scored empty. (red)
   Depends on T002, T004.
-- [ ] T019 [US3] Implement contained per-tenant error handling + missing-
+- [X] T019 [US3] Implement contained per-tenant error handling + missing-
   description exclusion in `icims.py`. (green) Depends on T010, T018.
-- [ ] T020 [US3] `uv run pytest`; confirm US3 tests green.
+- [X] T020 [US3] `uv run pytest`; confirm US3 tests green.
 
 ## Phase 6: Polish & cross-cutting
 
-- [ ] T021 Full repo suite green: `uv run pytest`; `uv run black --line-length
+- [X] T021 Full repo suite green: `uv run pytest`; `uv run black --line-length
   100 --check` on `icims.py`, `test_icims.py`, `fetch.py`.
-- [ ] T022 Independent reviewer pass (fresh context: diff + plan only): re-run
+- [X] T022 Independent reviewer pass (fresh context: diff + plan only): re-run
   `uv run pytest`; confirm the spike-verified shape matches the committed
   fixtures, no unverified constant is hardcoded, and `icims.py` matches its
   sibling's shape (no `_unwrap`-style helper). No infra touched →
