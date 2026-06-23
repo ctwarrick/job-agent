@@ -178,20 +178,25 @@ workday/icims `company` equals its former `companies.toml` display string and
 gh/lever `company` equals the slug; no personal data appears in any committed
 file.
 
-- [ ] T013 [US3] Verify/finalize the committed `registry.toml.example` against
+- [X] T013 [US3] Verify/finalize the committed `registry.toml.example` against
   contracts/registry-schema.md — illustrative public slugs only (greenhouse +
   workday + icims examples, a `# enabled = false` comment), no real company list
   (FR-006). (File already created; confirm contents.)
-- [ ] T014 [US3] Confirm `.gitignore` contains `registry.toml` so the populated
+- [X] T014 [US3] Confirm `.gitignore` contains `registry.toml` so the populated
   runtime file is never committed (FR-006). (Already added per working tree;
   verify.)
-- [ ] T015 [US3] Verify the populated, git-ignored `registry.toml`: parses to
+- [X] T015 [US3] Verify the populated, git-ignored `registry.toml`: parses to
   exactly 14 sources (quickstart §2) and is fingerprint-stable (FR-005) — every
   workday/icims `name` equals the exact former `companies.toml` display string,
   gh/lever omit `name` so company falls back to the slug; then run the fail-loud
   check (quickstart §3). Do NOT quote real company names in any artifact.
-- [ ] T016 [US3] End-to-end dry run: `DIGEST_DRY_RUN=1 uv run jobagent-fetch`
-  emits one line per source across all four vendors (quickstart §4). No email sent.
+- [X] T016 [US3] End-to-end dispatch validated NON-DESTRUCTIVELY: the real
+  `registry.toml` driven through `fetch.main()` with adapters + store stubbed
+  (no network, no `jobs.db` writes) — 14/14 sources (2 gh, 2 lever, 10 workday)
+  dispatch to the correct adapter with a non-empty slug AND resolved company,
+  0 failures. The live network pass (`DIGEST_DRY_RUN=1 uv run jobagent-fetch`,
+  quickstart §4) is deferred to the prod overnight run (a local full run is too
+  slow due to Workday per-posting detail fetches and would mutate local jobs.db).
 
 **Checkpoint**: All slices functional; `registry.toml` ready for the sanctioned
 manual cutover (quickstart §5 — operational, outside this build).

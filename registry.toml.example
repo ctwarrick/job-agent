@@ -14,9 +14,10 @@
 #   enabled  (optional, default true)  set false to disable without deleting
 #   max_per_employer (optional, int)  reserved; not yet wired
 #
-# Note: `name` is captured but not yet authoritative — adapters still resolve
-# the digest company via companies.toml this release. Keep `name` equal to the
-# source's current effective company so future wiring doesn't change dedupe.
+# Note: `name` is the authoritative digest company. The loader resolves it
+# (name if set, else the slug for greenhouse/lever or the tenant for
+# workday/icims) and fetch passes it to the adapter. Set `name` to the
+# source's current effective company so dedupe fingerprints stay stable.
 
 # --- Greenhouse: boards-api.greenhouse.io/v1/boards/{slug} ---
 [[source]]
