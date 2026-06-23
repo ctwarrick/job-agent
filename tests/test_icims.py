@@ -205,3 +205,31 @@ def test_company_falls_back_to_tenant_when_unmapped_or_file_missing(data_dir: Pa
 
     (data_dir / "companies.toml").write_text('[display_names]\nexamplecorp = "Example Corp"\n')
     assert icims._resolve_company("some_other_tenant") == "some_other_tenant"
+
+
+# --- US2 T015: per-employer cap ------------------------------------------
+
+
+def test_cap_limits_results_and_halts_pagination(fake_requests, monkeypatch) -> None:
+    # Cap = 5 against a board advertising 45 total. Reaching 5 happens within
+    # the first 10-job page, so only ONE GET should occur -- queuing a single
+    # page also proves the adapter does not page past the cap (a second GET
+    # would pop from an empty queue and raise).
+    monkeypatch.setenv("JOBAGENT_MAX_POSTINGS_PER_EMPLOYER", "5")
+    page1 = _page(45, [_job(req_id=str(i), country_code="US") for i in range(10)])
+    fake_requests.get_responses = [page1]
+
+    postings = icims.fetch(SLUG)
+
+    assert len(postings) == 5
+    assert len(fake_requests.calls) == 1  # halted at the cap, did not page on
+
+
+def test_cap_unset_returns_all_from_source(fake_requests, monkeypatch) -> None:
+    monkeypatch.delenv("JOBAGENT_MAX_POSTINGS_PER_EMPLOYER", raising=False)
+    page1 = _page(7, [_job(req_id=str(i), country_code="US") for i in range(7)])
+    fake_requests.get_responses = [page1]
+
+    postings = icims.fetch(SLUG)
+
+    assert len(postings) == 7

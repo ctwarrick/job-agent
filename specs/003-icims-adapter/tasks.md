@@ -80,13 +80,13 @@ postings retained, dedupe stable) with no manual per-posting handling.
 **Independent test**: set a small cap, fetch a tenant whose board exceeds it,
 confirm the adapter returns at most the cap and stops paging past it.
 
-- [ ] T015 [US2] In `tests/test_icims.py`, test
+- [X] T015 [US2] In `tests/test_icims.py`, test
   `JOBAGENT_MAX_POSTINGS_PER_EMPLOYER` caps returned postings and halts
   pagination at the cap; unset → no artificial cap. (red) Depends on T002, T004.
-- [ ] T016 [US2] Implement cap-honoring in `icims.py` (read the env var, bound
+- [X] T016 [US2] Implement cap-honoring in `icims.py` (read the env var, bound
   pagination + result count), reusing the cap convention from `workday.py`.
   (green) Depends on T010, T015.
-- [ ] T017 [US2] `uv run pytest`; confirm US2 tests green.
+- [X] T017 [US2] `uv run pytest`; confirm US2 tests green.
 
 ## Phase 5: User Story 3 — a failing iCIMS tenant does not break the run (P3)
 

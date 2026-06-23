@@ -120,6 +120,9 @@ def fetch(slug: str, *, timeout: int = 20) -> list[Posting]:
     company = _resolve_company(tenant)
     base = f"https://{host}"
 
+    cap_raw = os.environ.get("JOBAGENT_MAX_POSTINGS_PER_EMPLOYER")
+    cap = int(cap_raw) if cap_raw else None
+
     postings: list[Posting] = []
     page = 1
     while True:
@@ -148,6 +151,8 @@ def fetch(slug: str, *, timeout: int = 20) -> list[Posting]:
                     posted_at=job.get("posted_date"),
                 )
             )
+            if cap is not None and len(postings) >= cap:
+                return postings[:cap]  # cap reached -> stop, do not page on
 
         if page * PAGE_SIZE >= data.get("totalCount", 0):
             break
