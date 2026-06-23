@@ -194,17 +194,22 @@ def test_dedupe_fingerprint_stable_across_runs(fake_requests) -> None:
 # --- US1 T009: company display-name resolution ---------------------------
 
 
-def test_company_resolves_display_name_from_companies_toml(data_dir: Path) -> None:
-    (data_dir / "companies.toml").write_text('[display_names]\nexamplecorp = "Example Corp"\n')
-    assert icims._resolve_company("examplecorp") == "Example Corp"
+def test_company_comes_from_company_kwarg(fake_requests) -> None:
+    fake_requests.get_responses = [_page(1, [_job()])]
+
+    postings = icims.fetch(SLUG, company="Example Corp")
+
+    assert len(postings) == 1
+    assert postings[0].company == "Example Corp"
 
 
-def test_company_falls_back_to_tenant_when_unmapped_or_file_missing(data_dir: Path) -> None:
-    # No companies.toml written at all -> fallback to the slug.
-    assert icims._resolve_company("examplecorp") == "examplecorp"
+def test_company_defaults_to_tenant_when_absent(fake_requests) -> None:
+    fake_requests.get_responses = [_page(1, [_job()])]
 
-    (data_dir / "companies.toml").write_text('[display_names]\nexamplecorp = "Example Corp"\n')
-    assert icims._resolve_company("some_other_tenant") == "some_other_tenant"
+    postings = icims.fetch(SLUG)
+
+    assert len(postings) == 1
+    assert postings[0].company == TENANT
 
 
 # --- US2 T015: per-employer cap ------------------------------------------

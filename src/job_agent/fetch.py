@@ -1,18 +1,18 @@
 """Fetch orchestrator.
 
-Reads registry.txt, dispatches each company to the right ATS adapter,
-normalizes, and upserts into SQLite. Adding a new ATS means writing an
-adapter with a fetch(slug) -> list[Posting] signature and registering it
-in ADAPTERS.
+Reads registry.toml, dispatches each resolved source to the right ATS
+adapter, normalizes, and upserts into SQLite. Adding a new ATS means
+writing an adapter with a fetch(slug, *, company=...) -> list[Posting]
+signature and registering it in ADAPTERS.
 """
 
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 
 from . import store
 from .adapters import greenhouse, icims, lever, workday
+from .registry import load_registry
 
 ADAPTERS = {
     "greenhouse": greenhouse.fetch,
@@ -20,34 +20,6 @@ ADAPTERS = {
     "workday": workday.fetch,
     "icims": icims.fetch,
 }
-
-
-def load_registry(path: str | None = None) -> list[tuple[str, str]]:
-    """Parse registry.txt and return (vendor, slug) tuples.
-
-    Skips blank lines and comments (# to end of line). Lowercases vendor
-    names for comparison against ADAPTERS keys.
-
-    Args:
-        path: Optional path to registry.txt; defaults to
-            data_path("registry.txt").
-
-    Returns:
-        List of (vendor, slug) tuples, one per valid registry line.
-        Malformed lines are logged to stderr and skipped.
-    """
-    entries = []
-    path = path or store.data_path("registry.txt")
-    for line in Path(path).read_text().splitlines():
-        line = line.split("#", 1)[0].strip()
-        if not line:
-            continue
-        parts = line.split()
-        if len(parts) < 2:
-            print(f"  ! malformed registry line: {line!r}", file=sys.stderr)
-            continue
-        entries.append((parts[0].lower(), parts[1]))
-    return entries
 
 
 def main() -> list[dict]:
@@ -68,21 +40,21 @@ def main() -> list[dict]:
     store.init()
     total_new = 0
     failures: list[dict] = []
-    for vendor, slug in load_registry():
-        fetch = ADAPTERS.get(vendor)
+    for source in load_registry():
+        fetch = ADAPTERS.get(source.vendor)
         if fetch is None:
-            error = f"no adapter for vendor {vendor!r}"
-            print(f"  ! {error} (slug {slug})", file=sys.stderr)
-            failures.append({"source": vendor, "company_slug": slug, "error": error})
+            error = f"no adapter for vendor {source.vendor!r}"
+            print(f"  ! {error} (slug {source.slug})", file=sys.stderr)
+            failures.append({"source": source.vendor, "company_slug": source.slug, "error": error})
             continue
         try:
-            postings = fetch(slug)
+            postings = fetch(source.slug, company=source.company)
             added = store.upsert_postings(postings)
             total_new += added
-            print(f"  {vendor:12} {slug:20} {len(postings):4} fetched, {added:4} new")
+            print(f"  {source.vendor:12} {source.slug:20} {len(postings):4} fetched, {added:4} new")
         except Exception as e:  # one bad board shouldn't kill the run
-            print(f"  ! {vendor}/{slug} failed: {e}", file=sys.stderr)
-            failures.append({"source": vendor, "company_slug": slug, "error": str(e)})
+            print(f"  ! {source.vendor}/{source.slug} failed: {e}", file=sys.stderr)
+            failures.append({"source": source.vendor, "company_slug": source.slug, "error": str(e)})
     print(f"\nDone. {total_new} new postings added.")
     return failures
 

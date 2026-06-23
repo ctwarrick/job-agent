@@ -9,20 +9,20 @@ second round-trip). The shape was confirmed live by the Phase 0 recon spike
 (specs/003-icims-adapter/research.md): top-level `jobs` (list, ~10/page),
 `totalCount`, and each list item wrapped as `{"data": {...job...}}`.
 
-A single compound slug `tenant[:host]` keeps `load_registry` and the
-`fetch(slug) -> list[Posting]` adapter contract unchanged; this module splits
-the slug internally. `host` defaults to `{tenant}.icims.com` when omitted, and
-is given explicitly for the common custom-domain case (e.g.
-"sig:careers.sig.com").
+A single compound slug `tenant[:host]` keeps the
+`fetch(slug, *, company=...) -> list[Posting]` adapter contract unchanged;
+this module splits the slug internally. `host` defaults to
+`{tenant}.icims.com` when omitted, and is given explicitly for the common
+custom-domain case (e.g. "sig:careers.sig.com").
 
 US scoping is deterministic on each job's `country_code`: keep `US`, drop a
 code positively identified as non-US, and retain an empty/missing code
 (FR-004 keep-if-any -- over-include, let LLM scoring resolve the bleed).
 
-Company display names resolve from a git-ignored `companies.toml`
-(`[display_names]` tenant -> name) exactly as the Workday adapter does;
-a missing file or mapping falls back open to the tenant slug, since company
-feeds the dedupe fingerprint (schema.py) and must never be empty.
+The display company name is the caller-supplied `company` kwarg (resolved
+upstream from `registry.toml`); it falls back to the tenant slug when
+absent, since company feeds the dedupe fingerprint (schema.py) and must
+never be empty.
 
 `requests` and `time` are imported at module level so tests can monkeypatch
 `icims.requests` / `icims.time.sleep`.
@@ -32,11 +32,9 @@ from __future__ import annotations
 
 import os
 import time
-import tomllib
 
 import requests
 
-from .. import store
 from ..schema import Posting, normalize
 
 HEADERS = {"User-Agent": "jobagent/0.1 (personal job search)"}
@@ -65,25 +63,6 @@ def _split_slug(slug: str) -> tuple[str, str]:
     raise ValueError(f"malformed icims slug {slug!r}; expected tenant or tenant:host")
 
 
-def _resolve_company(tenant: str) -> str:
-    """Resolve a tenant slug to a display name via `companies.toml`.
-
-    Args:
-        tenant: The iCIMS tenant slug (e.g. "sig").
-
-    Returns:
-        The mapped display name from `companies.toml`'s `[display_names]`
-        table, or `tenant` itself if the file is missing or has no mapping
-        for this tenant (fail-open).
-    """
-    path = store.data_path("companies.toml")
-    if not os.path.exists(path):
-        return tenant
-    with open(path, "rb") as f:
-        data = tomllib.load(f)
-    return data.get("display_names", {}).get(tenant, tenant)
-
-
 def _is_us(country_code: str) -> bool:
     """Deterministic US gate keyed on the job's ISO-2 country code.
 
@@ -101,11 +80,13 @@ def _is_us(country_code: str) -> bool:
     return country_code.strip().upper() == "US"
 
 
-def fetch(slug: str, *, timeout: int = 20) -> list[Posting]:
+def fetch(slug: str, *, company: str | None = None, timeout: int = 20) -> list[Posting]:
     """Fetch all open US postings for one iCIMS (Jibe) tenant.
 
     Args:
         slug: Compound `tenant[:host]` slug (e.g. "sig:careers.sig.com").
+        company: Display company name; defaults to the tenant slug when
+            absent.
         timeout: Request timeout in seconds (default 20).
 
     Returns:
@@ -117,7 +98,7 @@ def fetch(slug: str, *, timeout: int = 20) -> list[Posting]:
             in fetch.py so one bad tenant does not abort the run).
     """
     tenant, host = _split_slug(slug)
-    company = _resolve_company(tenant)
+    company = company or tenant
     base = f"https://{host}"
 
     cap_raw = os.environ.get("JOBAGENT_MAX_POSTINGS_PER_EMPLOYER")

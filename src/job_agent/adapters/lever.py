@@ -19,7 +19,7 @@ BASE = "https://api.lever.co/v0/postings/{slug}"
 HEADERS = {"User-Agent": "jobagent/0.1 (personal job search)"}
 
 
-def fetch(slug: str, *, timeout: int = 20) -> list[Posting]:
+def fetch(slug: str, *, company: str | None = None, timeout: int = 20) -> list[Posting]:
     """Fetch all open postings for one Lever account.
 
     Calls the public Lever postings API. Prefers descriptionPlain over
@@ -27,6 +27,7 @@ def fetch(slug: str, *, timeout: int = 20) -> list[Posting]:
 
     Args:
         slug: Lever account slug (e.g. 'stripe').
+        company: Display company name; defaults to `slug` when absent.
         timeout: Request timeout in seconds (default 20).
 
     Returns:
@@ -35,6 +36,7 @@ def fetch(slug: str, *, timeout: int = 20) -> list[Posting]:
     Raises:
         requests.HTTPError: On API request failure.
     """
+    company = company or slug
     url = BASE.format(slug=slug)
     resp = requests.get(url, params={"mode": "json"}, headers=HEADERS, timeout=timeout)
     resp.raise_for_status()
@@ -56,7 +58,7 @@ def fetch(slug: str, *, timeout: int = 20) -> list[Posting]:
         postings.append(
             normalize(
                 source="lever",
-                company=slug,
+                company=company,
                 external_id=job.get("id"),
                 title=job.get("text", ""),
                 location=loc,

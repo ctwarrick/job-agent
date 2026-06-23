@@ -130,34 +130,34 @@ tenant (workday/icims) with no `companies.toml` involvement.
 
 > Write/adjust these FIRST and prove they FAIL against the old contract.
 
-- [ ] T004 [P] [US2] In `tests/test_fetch.py`: drop the 4 `registry.txt`
+- [X] T004 [P] [US2] In `tests/test_fetch.py`: drop the 4 `registry.txt`
   parsing tests; update the failure-record tests to build `registry.Source`
   objects and assert the adapter is called with `company=source.company`. Prove red.
-- [ ] T005 [P] [US2] In `tests/test_workday.py`: replace the 2 `companies.toml`
+- [X] T005 [P] [US2] In `tests/test_workday.py`: replace the 2 `companies.toml`
   resolution tests (~lines 294, 301) with "company comes from the `company`
   arg; defaults to tenant when absent." Prove red.
-- [ ] T006 [P] [US2] In `tests/test_icims.py`: replace the 2 `companies.toml`
+- [X] T006 [P] [US2] In `tests/test_icims.py`: replace the 2 `companies.toml`
   resolution tests (~lines 197, 202) with the same "company from arg / defaults
   to tenant" pair. Prove red.
 
 ### Implementation for User Story 2
 
-- [ ] T007 [US2] In `src/job_agent/fetch.py`: import `load_registry`; change the
+- [X] T007 [US2] In `src/job_agent/fetch.py`: import `load_registry`; change the
   loop to `for source in load_registry():`, dispatch
   `ADAPTERS[source.vendor](source.slug, company=source.company)`, and build
   failure records from `source.vendor` / `source.slug`; drop the `registry.txt`
   read; update the module docstring (registry.txt → registry.toml). Depends on T003.
-- [ ] T008 [P] [US2] In `src/job_agent/adapters/greenhouse.py`: add
+- [X] T008 [P] [US2] In `src/job_agent/adapters/greenhouse.py`: add
   `company: str | None = None` to `fetch(...)` and use `company = company or slug`.
-- [ ] T009 [P] [US2] In `src/job_agent/adapters/lever.py`: same `company` kwarg,
+- [X] T009 [P] [US2] In `src/job_agent/adapters/lever.py`: same `company` kwarg,
   `company = company or slug`.
-- [ ] T010 [P] [US2] In `src/job_agent/adapters/workday.py`: add the `company`
+- [X] T010 [P] [US2] In `src/job_agent/adapters/workday.py`: add the `company`
   kwarg (`company = company or tenant`); delete `_resolve_company`, the
   `companies.toml` read, and `import tomllib` (plan refs L31, L69, L104); drop
   the companies.toml paragraph from the module docstring.
-- [ ] T011 [P] [US2] In `src/job_agent/adapters/icims.py`: same as T010
+- [X] T011 [P] [US2] In `src/job_agent/adapters/icims.py`: same as T010
   (plan refs L35, L68, L120).
-- [ ] T012 [US2] Retire `companies.toml`: delete the committed
+- [X] T012 [US2] Retire `companies.toml`: delete the committed
   `companies.toml.example`, and remove the `companies.toml` line from
   `.gitignore`. (The runtime git-ignored `companies.toml` is removed from the
   Azure Files share at cutover — see US3.)

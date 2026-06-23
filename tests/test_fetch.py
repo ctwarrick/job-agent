@@ -1,45 +1,4 @@
-from pathlib import Path
-
-from job_agent import fetch
-from job_agent.fetch import load_registry
-
-
-def test_load_registry_skips_comments_and_blank_lines(tmp_path: Path) -> None:
-    registry = tmp_path / "registry.txt"
-    registry.write_text(
-        "# header comment\n" "\n" "greenhouse stripe\n" "lever plaid # trailing comment\n"
-    )
-    assert load_registry(str(registry)) == [
-        ("greenhouse", "stripe"),
-        ("lever", "plaid"),
-    ]
-
-
-def test_load_registry_lowercases_vendor(tmp_path: Path) -> None:
-    registry = tmp_path / "registry.txt"
-    registry.write_text("Greenhouse stripe\n")
-    assert load_registry(str(registry)) == [("greenhouse", "stripe")]
-
-
-def test_load_registry_skips_malformed_lines(tmp_path: Path, capsys) -> None:
-    registry = tmp_path / "registry.txt"
-    registry.write_text("greenhouse\nlever plaid\n")
-    assert load_registry(str(registry)) == [("lever", "plaid")]
-    assert "malformed" in capsys.readouterr().err
-
-
-def test_load_registry_default_resolves_under_data_dir(tmp_path: Path, monkeypatch) -> None:
-    data_dir = tmp_path / "data"
-    cwd_dir = tmp_path / "cwd"
-    data_dir.mkdir()
-    cwd_dir.mkdir()
-    (data_dir / "registry.txt").write_text("greenhouse acme\n")
-
-    monkeypatch.setenv("JOBAGENT_DATA_DIR", str(data_dir))
-    monkeypatch.chdir(cwd_dir)
-
-    assert fetch.load_registry() == [("greenhouse", "acme")]
-
+from job_agent import fetch, registry
 
 # --- US3a: per-source failure records returned (FR-005) ---------------------
 
@@ -50,13 +9,18 @@ def test_main_returns_failure_record_when_adapter_raises(monkeypatch) -> None:
     in the same run still upserts."""
     monkeypatch.setattr(fetch.store, "init", lambda *a, **k: None)
     monkeypatch.setattr(
-        fetch, "load_registry", lambda *a, **k: [("greenhouse", "acme"), ("lever", "good")]
+        fetch,
+        "load_registry",
+        lambda *a, **k: [
+            registry.Source(vendor="greenhouse", slug="acme", company="acme"),
+            registry.Source(vendor="lever", slug="good", company="good"),
+        ],
     )
 
-    def bad(slug: str):
+    def bad(slug: str, *, company=None):
         raise RuntimeError("boom timeout")
 
-    def good(slug: str):
+    def good(slug: str, *, company=None):
         return ["p1", "p2"]
 
     monkeypatch.setattr(fetch, "ADAPTERS", {"greenhouse": bad, "lever": good})
@@ -84,7 +48,11 @@ def test_main_returns_failure_record_for_unknown_vendor(monkeypatch) -> None:
     """A registry vendor with no adapter is per-source degradation (A1), not a
     fatal config error: it produces a failure record and the run continues."""
     monkeypatch.setattr(fetch.store, "init", lambda *a, **k: None)
-    monkeypatch.setattr(fetch, "load_registry", lambda *a, **k: [("workday", "bigco")])
+    monkeypatch.setattr(
+        fetch,
+        "load_registry",
+        lambda *a, **k: [registry.Source(vendor="workday", slug="bigco", company="bigco")],
+    )
     monkeypatch.setattr(fetch, "ADAPTERS", {})
     monkeypatch.setattr(fetch.store, "upsert_postings", lambda *a, **k: 0)
 
@@ -100,12 +68,52 @@ def test_main_returns_failure_record_for_unknown_vendor(monkeypatch) -> None:
 def test_main_returns_empty_list_when_all_sources_succeed(monkeypatch) -> None:
     monkeypatch.setattr(fetch.store, "init", lambda *a, **k: None)
     monkeypatch.setattr(
-        fetch, "load_registry", lambda *a, **k: [("greenhouse", "acme"), ("lever", "plaid")]
+        fetch,
+        "load_registry",
+        lambda *a, **k: [
+            registry.Source(vendor="greenhouse", slug="acme", company="acme"),
+            registry.Source(vendor="lever", slug="plaid", company="plaid"),
+        ],
     )
-    monkeypatch.setattr(fetch, "ADAPTERS", {"greenhouse": lambda s: [], "lever": lambda s: []})
+    monkeypatch.setattr(
+        fetch,
+        "ADAPTERS",
+        {"greenhouse": lambda s, *, company=None: [], "lever": lambda s, *, company=None: []},
+    )
     monkeypatch.setattr(fetch.store, "upsert_postings", lambda *a, **k: 0)
 
     assert fetch.main() == []
+
+
+def test_main_passes_resolved_company_to_adapter(monkeypatch) -> None:
+    """main() must dispatch ADAPTERS[source.vendor](source.slug,
+    company=source.company): the resolved Source.company (whether it equals
+    the slug or an explicit display name) must reach the adapter call."""
+    monkeypatch.setattr(fetch.store, "init", lambda *a, **k: None)
+    monkeypatch.setattr(
+        fetch,
+        "load_registry",
+        lambda *a, **k: [
+            registry.Source(vendor="greenhouse", slug="acme", company="acme"),
+            registry.Source(vendor="lever", slug="plaid", company="Acme Corp"),
+        ],
+    )
+
+    received: list[tuple] = []
+
+    def recording_adapter(slug, *, company=None):
+        received.append((slug, company))
+        return []
+
+    monkeypatch.setattr(
+        fetch, "ADAPTERS", {"greenhouse": recording_adapter, "lever": recording_adapter}
+    )
+    monkeypatch.setattr(fetch.store, "upsert_postings", lambda *a, **k: 0)
+
+    fetch.main()
+
+    assert ("acme", "acme") in received
+    assert ("plaid", "Acme Corp") in received
 
 
 def test_cli_discards_return_value(monkeypatch) -> None:

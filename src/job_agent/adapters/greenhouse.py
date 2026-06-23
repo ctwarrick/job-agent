@@ -20,7 +20,7 @@ BASE = "https://boards-api.greenhouse.io/v1/boards/{slug}/jobs"
 HEADERS = {"User-Agent": "jobagent/0.1 (personal job search)"}
 
 
-def fetch(slug: str, *, timeout: int = 20) -> list[Posting]:
+def fetch(slug: str, *, company: str | None = None, timeout: int = 20) -> list[Posting]:
     """Fetch all open postings for one Greenhouse board.
 
     Calls the public Greenhouse Boards API with ?content=true to get
@@ -28,6 +28,7 @@ def fetch(slug: str, *, timeout: int = 20) -> list[Posting]:
 
     Args:
         slug: Greenhouse board slug (e.g. 'stripe').
+        company: Display company name; defaults to `slug` when absent.
         timeout: Request timeout in seconds (default 20).
 
     Returns:
@@ -36,6 +37,7 @@ def fetch(slug: str, *, timeout: int = 20) -> list[Posting]:
     Raises:
         requests.HTTPError: On API request failure.
     """
+    company = company or slug
     url = BASE.format(slug=slug)
     resp = requests.get(url, params={"content": "true"}, headers=HEADERS, timeout=timeout)
     resp.raise_for_status()
@@ -50,7 +52,7 @@ def fetch(slug: str, *, timeout: int = 20) -> list[Posting]:
         postings.append(
             normalize(
                 source="greenhouse",
-                company=slug,
+                company=company,
                 external_id=job.get("id"),
                 title=job.get("title", ""),
                 location=loc,

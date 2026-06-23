@@ -4,7 +4,7 @@ Workday CXS (Career Site eXperience Service) is reached at
     https://{host}.myworkdayjobs.com/wday/cxs/{tenant}/{site}/jobs
 
 A single compound slug `tenant:site:host` (e.g. "chrobinson:CHRobinson:wd5")
-keeps `load_registry` and the `fetch(slug) -> list[Posting]` adapter contract
+keeps the `fetch(slug, *, company=...) -> list[Posting]` adapter contract
 unchanged; this module splits the slug internally.
 
 Two round-trips per posting:
@@ -14,11 +14,10 @@ Two round-trips per posting:
   2. `GET .../wday/cxs/{tenant}/{site}{externalPath}` returns the full
      per-job description.
 
-Company display names are resolved from a git-ignored `companies.toml`
-(`[display_names]` tenant -> name), loaded via `store.data_path` the same
-way `filter.py` loads `filter.toml`; missing file or missing mapping falls
-back open to the tenant slug itself, since company feeds the dedupe
-fingerprint (schema.py) and must never be empty.
+The display company name is the caller-supplied `company` kwarg (resolved
+upstream from `registry.toml`); it falls back to the tenant slug itself
+when absent, since company feeds the dedupe fingerprint (schema.py) and
+must never be empty.
 
 `requests` and `time` are imported at module level so tests can monkeypatch
 `workday.requests` / `workday.time.sleep`.
@@ -28,11 +27,9 @@ from __future__ import annotations
 
 import os
 import time
-import tomllib
 
 import requests
 
-from .. import store
 from ..schema import Posting, normalize
 
 # Scope the jobs POST body's appliedFacets to US postings. Both the facet
@@ -66,31 +63,14 @@ def _split_slug(slug: str) -> tuple[str, str, str]:
     return tenant, site, host
 
 
-def _resolve_company(tenant: str) -> str:
-    """Resolve a tenant slug to a display name via `companies.toml`.
-
-    Args:
-        tenant: The Workday tenant slug (e.g. "chrobinson").
-
-    Returns:
-        The mapped display name from `companies.toml`'s `[display_names]`
-        table, or `tenant` itself if the file is missing or has no mapping
-        for this tenant (fail-open).
-    """
-    path = store.data_path("companies.toml")
-    if not os.path.exists(path):
-        return tenant
-    with open(path, "rb") as f:
-        data = tomllib.load(f)
-    return data.get("display_names", {}).get(tenant, tenant)
-
-
-def fetch(slug: str, *, timeout: int = 20) -> list[Posting]:
+def fetch(slug: str, *, company: str | None = None, timeout: int = 20) -> list[Posting]:
     """Fetch all open US postings for one Workday tenant/site.
 
     Args:
         slug: Compound `tenant:site:host` slug (e.g.
             "chrobinson:CHRobinson:wd5").
+        company: Display company name; defaults to the tenant slug when
+            absent.
         timeout: Request timeout in seconds (default 20).
 
     Returns:
@@ -101,7 +81,7 @@ def fetch(slug: str, *, timeout: int = 20) -> list[Posting]:
         requests.HTTPError: On API request failure.
     """
     tenant, site, host = _split_slug(slug)
-    company = _resolve_company(tenant)
+    company = company or tenant
     base = f"https://{tenant}.{host}.myworkdayjobs.com/wday/cxs/{tenant}/{site}"
 
     cap_raw = os.environ.get("JOBAGENT_MAX_POSTINGS_PER_EMPLOYER")

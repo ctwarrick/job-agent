@@ -291,19 +291,23 @@ def test_jobs_post_body_carries_us_country_facet(fake_requests) -> None:
 # --- 12-13: company display-name resolution -------------------------------
 
 
-def test_company_resolves_display_name_from_companies_toml(monkeypatch, tmp_path: Path) -> None:
+def test_company_comes_from_company_kwarg(fake_requests, monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("JOBAGENT_DATA_DIR", str(tmp_path))
-    (tmp_path / "companies.toml").write_text('[display_names]\nmsd = "Merck"\n')
+    fake_requests.post_responses = [_jobs_page(1, [_job_posting()])]
+    fake_requests.get_responses = [_detail_payload()]
 
-    assert workday._resolve_company("msd") == "Merck"
+    postings = workday.fetch(SLUG, company="Some Display Name")
+
+    assert len(postings) == 1
+    assert postings[0].company == "Some Display Name"
 
 
-def test_company_falls_back_to_tenant_when_unmapped_or_file_missing(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_company_defaults_to_tenant_when_absent(fake_requests, monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("JOBAGENT_DATA_DIR", str(tmp_path))
-    # No companies.toml written at all.
-    assert workday._resolve_company("unmapped_tenant") == "unmapped_tenant"
+    fake_requests.post_responses = [_jobs_page(1, [_job_posting()])]
+    fake_requests.get_responses = [_detail_payload()]
 
-    (tmp_path / "companies.toml").write_text('[display_names]\nmsd = "Merck"\n')
-    assert workday._resolve_company("some_other_tenant") == "some_other_tenant"
+    postings = workday.fetch(SLUG)
+
+    assert len(postings) == 1
+    assert postings[0].company == TENANT
