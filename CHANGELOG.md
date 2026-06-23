@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it reaches 1.0.0. Before 1.0.0, minor versions may include breaking changes.
 
+## [1.2.0] - 2026-06-22
+
+### Added
+
+- iCIMS adapter (`src/job_agent/adapters/icims.py`): fetches open US postings
+  from iCIMS career sites fronted by Jibe's public, unauthenticated
+  `/api/jobs` JSON endpoint. A compound `tenant[:host]` slug (e.g.
+  `sig:careers.sig.com`) in `registry.txt` keeps the `fetch(slug) ->
+  list[Posting]` adapter contract unchanged, defaulting `host` to
+  `{tenant}.icims.com` when omitted. Pagination walks every page until
+  `totalCount` is exhausted, a US-location gate keeps `US` and
+  unparseable/missing country codes while dropping postings positively
+  identified as non-US, and postings with no description are excluded
+  before scoring rather than scored empty. Registered as `"icims"` in
+  `fetch.py`'s `ADAPTERS` dispatch table alongside `greenhouse`, `lever`,
+  and `workday`. Honors the existing `JOBAGENT_MAX_POSTINGS_PER_EMPLOYER`
+  cap, halting pagination once reached, and a per-tenant fetch failure is
+  contained so the run continues with the remaining sources. Display-name
+  resolution reuses `companies.toml`'s `[display_names]` table (tenant slug
+  -> company name), falling back open to the tenant slug itself.
+
 ## [1.1.0] - 2026-06-22
 
 ### Added

@@ -58,9 +58,17 @@ Every subagent prompt must contain:
   and obey the context-monitor bands per the Context budget protocol in `AGENTS.md`: at ELEVATED finish
   the phase and checkpoint; at HIGH write `handoff.md` and recommend a fresh
   session; at CRITICAL stop dispatching and hand off immediately.
+- A gate task may be checked off only with the dispatch that satisfied it
+  named in the same line — the review task records the reviewer subagent and
+  its diff range, never "self-review"; an inline self-review never checks the
+  independent-review box.
 - A handoff.md is consumed the moment a session resumes from it: at session
   close, rewrite it to reflect the new state (or mark it superseded in
-  state.md) so the next session never resumes from stale instructions.
+  state.md) so the next session never resumes from stale instructions. A hard
+  gate (independent review, green pytest) is recorded as done in the handoff
+  only by naming the subagent dispatch that satisfied it; "self-review" or
+  "self-checked" is recorded as *not done* so the resuming session re-runs the
+  gate.
 - Don't dispatch for what a single read or grep answers — do it inline.
 - One role per dispatch; if a subagent's output shows it drifted out of scope,
   discard and re-dispatch rather than patching its output yourself.

@@ -108,18 +108,22 @@ overall fetch continues and the failure is visible.
 
 - [X] T021 Full repo suite green: `uv run pytest`; `uv run black --line-length
   100 --check` on `icims.py`, `test_icims.py`, `fetch.py`.
-- [X] T022 Independent reviewer pass (fresh context: diff + plan only): re-run
-  `uv run pytest`; confirm the spike-verified shape matches the committed
-  fixtures, no unverified constant is hardcoded, and `icims.py` matches its
-  sibling's shape (no `_unwrap`-style helper). No infra touched →
-  `validate-infra.sh` N/A.
-- [ ] T023 Local wiring (git-ignored, post-green, NOT committed): add the
-  confirmed tenants' `icims` lines to `registry.txt` and display names to
-  `companies.toml` (from the git-ignored plans doc); run
-  `JOBAGENT_MAX_POSTINGS_PER_EMPLOYER=10 uv run jobagent-fetch` to confirm
-  upsert without error.
-- [ ] T024 Human commit gate → releaser (1.2.0: CHANGELOG, version, `uv lock`,
-  README) → retrospective.
+- [X] T022 Independent reviewer pass (fresh context: diff + plan only):
+  **APPROVE** (reviewer subagent, diff `c0b20b9..HEAD` + plan only). Re-ran
+  `uv run pytest` → 158 passed; spike-verified shape matches committed fixtures,
+  no unverified constant hardcoded, `icims.py` mirrors the sibling (no
+  `_unwrap`). Two advisory nits, both identical to the Workday sibling and
+  non-blocking. No infra touched → `validate-infra.sh` N/A.
+- [X] T023 Local wiring (git-ignored, post-green, NOT committed): verified via
+  the handoff-endorsed direct-call path
+  (`JOBAGENT_MAX_POSTINGS_PER_EMPLOYER=10 icims.fetch("sig:careers.sig.com")`)
+  to avoid mutating `registry.txt`/`jobs.db`. Returned 10 postings (cap
+  honored), US-location parse correct, tenant-slug display-name fallback
+  working. Adapter validated end-to-end against the live Jibe API.
+- [X] T024 Human commit gate → releaser (1.2.0: CHANGELOG, version, `uv lock`,
+  README) → retrospective. Reviewer APPROVE; releaser prepped 1.2.0; retro
+  applied 2 edits to `agents/orchestrator.md`. Human authorized commit + tag
+  v1.2.0 (push reserved to the human).
 
 ## Dependencies & execution order
 
