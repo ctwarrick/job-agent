@@ -12,7 +12,7 @@ fakes from the real shape). Sibling reference: `adapters/workday.py` /
 
 ## Phase 1: Setup
 
-- [ ] T001 Recon spike (dev-only, network; throwaway, NOT committed): for the
+- [X] T001 Recon spike (dev-only, network; throwaway, NOT committed): for the
   two confirmed tenants named in the git-ignored
   `plans/adapter-implementation-sequence.md`, confirm each is iCIMS (detection
   hook: career-site HTML / redirects contain `icims.com`), resolve the real
@@ -21,19 +21,19 @@ fakes from the real shape). Sibling reference: `adapters/workday.py` /
   `/jobs/search?pr=` HTML, or an internal JSON endpoint), and capture one
   listing/sitemap response + one job-detail response per tenant. Record the
   confirmed method/host in `specs/003-icims-adapter/research.md`.
-- [ ] T002 Save the captured responses as test fixtures under
+- [X] T002 Save the captured responses as test fixtures under
   `tests/fixtures/icims/` (or an inline fixtures module), following the
   stub-payload pattern in `tests/test_workday.py`. Depends on T001.
-- [ ] T003 [P] Extend `companies.toml.example` with a sample iCIMS
+- [X] T003 [P] Extend `companies.toml.example` with a sample iCIMS
   tenant → display-name entry.
 
 ## Phase 2: Foundational (blocks all user stories)
 
-- [ ] T004 Create the adapter skeleton `src/job_agent/adapters/icims.py` with
+- [X] T004 Create the adapter skeleton `src/job_agent/adapters/icims.py` with
   `def fetch(slug: str) -> list[Posting]` raising `NotImplementedError` and the
   internal slug-split helper signature, mirroring `adapters/workday.py`'s module
   shape (uniform `resp.raise_for_status()` + parse; no per-call duck-typing).
-- [ ] T005 Register `"icims": icims.fetch` in the `ADAPTERS` table in
+- [X] T005 Register `"icims": icims.fetch` in the `ADAPTERS` table in
   `src/job_agent/fetch.py`. Depends on T004.
 
 ## Phase 3: User Story 1 — iCIMS employers feed the digest (P1) — MVP
@@ -47,29 +47,30 @@ postings retained, dedupe stable) with no manual per-posting handling.
 
 ### Tests (red) — author together, must fail for the right reason
 
-- [ ] T006 [US1] In `tests/test_icims.py`, test list/sitemap parsing → `Posting`
+- [X] T006 [US1] In `tests/test_icims.py`, test list/sitemap parsing → `Posting`
   records (company, title, location, description, url, numeric id) from the
   captured fixtures. Depends on T002, T004.
-- [ ] T007 [US1] Test the US-location filter: keeps US, drops
+- [X] T007 [US1] Test the US-location filter: keeps US, drops
   positively-identified non-US, and **retains unparseable/ambiguous-location**
   postings (FR-004 resolution).
-- [ ] T008 [US1] Test the dedupe fingerprint is stable across two runs, keyed on
+- [X] T008 [US1] Test the dedupe fingerprint is stable across two runs, keyed on
   the numeric job id.
-- [ ] T009 [US1] Test company display-name resolves via the `companies.toml`
+- [X] T009 [US1] Test company display-name resolves via the `companies.toml`
   mapping and falls back to the tenant slug when absent (never empty).
 
 ### Implementation (green)
 
-- [ ] T010 [US1] Implement slug split + listing/sitemap fetch and parse →
+- [X] T010 [US1] Implement slug split + listing/sitemap fetch and parse →
   `Posting` in `src/job_agent/adapters/icims.py` (stdlib parsing per
   `research.md`). Depends on T006–T009.
-- [ ] T011 [US1] Implement the per-posting detail fetch when the listing omits
-  the description, with the politeness sleep (~1 req / 2–3 s). Depends on T010.
-- [ ] T012 [US1] Implement the deterministic US-location filter
+- [X] T011 [US1] N/A per recon: the Jibe `/api/jobs` response carries the full
+  description inline, so no second round-trip is needed (missing-description
+  handling lands in US3/T019). Politeness sleep is between pages. Depends on T010.
+- [X] T012 [US1] Implement the deterministic US-location filter
   (keep-if-any / retain-unparseable) before returning. Depends on T010.
-- [ ] T013 [US1] Implement display-name resolution from `companies.toml` with
+- [X] T013 [US1] Implement display-name resolution from `companies.toml` with
   tenant-slug fallback. Depends on T010.
-- [ ] T014 [US1] `uv run pytest` until US1 tests pass; `uv run black
+- [X] T014 [US1] `uv run pytest` until US1 tests pass; `uv run black
   --line-length 100` on `icims.py`, `test_icims.py`, `fetch.py`.
 
 ## Phase 4: User Story 2 — large iCIMS boards stay bounded (P2)

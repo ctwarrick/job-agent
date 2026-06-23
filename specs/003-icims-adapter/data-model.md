@@ -10,21 +10,27 @@ Reused as-is. The adapter MUST populate the fields scoring and the dedupe
 fingerprint depend on. Mapping from iCIMS source fields (confirmed by the recon
 spike):
 
-| Posting field | iCIMS source | Notes |
+Source fields are the Jibe `/api/jobs` JSON confirmed by the recon spike (see
+[research.md](research.md)); each job is read from `jobs[].data`.
+
+| Posting field | iCIMS (Jibe JSON) source | Notes |
 |---|---|---|
 | `company` | `companies.toml` display name, else tenant slug | Never empty; feeds fingerprint. |
-| `title` | job-detail title | |
-| `location` | job-detail location text | Drives deterministic US filtering before scoring. |
-| `description` | job-detail body | Scorer needs it; fetch detail if listing omits. |
-| `url` | `https://{tenant}.icims.com/jobs/{id}/{slug}/job` | Canonical posting URL. |
-| `posted_at` / date | detail or sitemap `lastmod` | Best-effort; optional if absent. |
-| fingerprint input | numeric job `{id}` | Stable, deterministic dedupe key. |
+| `title` | `data.title` | |
+| `location` | `data.full_location` (else `data.location_name`) | Display text; US filtering keys off `country_code`, not this string. |
+| `description` | `data.description` | Full HTML, **inline** — no detail round-trip. |
+| `url` | `data.apply_url` | Canonical posting URL. |
+| `posted_at` / date | `data.posted_date` | ISO-8601; best-effort if absent. |
+| fingerprint input | `data.req_id` (numeric job ID) | Stable, deterministic dedupe key. |
+| US filter input | `data.country_code` (ISO-2) | Keep `US`; drop positively non-US; retain empty/missing. |
 
 Validation / rules:
 
-- Non-US locations are dropped before scoring (Constitution VII).
-- A posting whose description cannot be obtained is excluded rather than scored
-  empty (the scorer needs description text).
+- US filtering is deterministic on `country_code`: keep `US`, drop a code
+  positively identified as non-US, retain an empty/missing code (FR-004,
+  keep-if-any). Runs before scoring (Constitution VII).
+- A posting with no description text is excluded rather than scored empty (the
+  scorer needs description text).
 - Result count per tenant per run is capped by
   `JOBAGENT_MAX_POSTINGS_PER_EMPLOYER`.
 

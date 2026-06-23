@@ -51,6 +51,7 @@ ADAPTERS = {
 
 ## Conformance tests (stub-based, no network)
 
-The committed suite (`tests/test_icims.py`) asserts this contract against the
-recon-captured fixtures: list/sitemap parse → `Posting`s; US filter; cap; stable
-dedupe across runs; contained per-tenant failure; missing-description handling.
+The committed suite (`tests/test_icims.py`) asserts this contract against
+synthetic fixtures built to the recon-confirmed Jibe JSON shape: `/api/jobs`
+page parse → `Posting`s; US filter (`country_code`); cap; stable dedupe across
+runs; contained per-tenant failure; missing-description handling.

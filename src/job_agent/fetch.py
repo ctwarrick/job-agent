@@ -12,12 +12,13 @@ import sys
 from pathlib import Path
 
 from . import store
-from .adapters import greenhouse, lever, workday
+from .adapters import greenhouse, icims, lever, workday
 
 ADAPTERS = {
     "greenhouse": greenhouse.fetch,
     "lever": lever.fetch,
     "workday": workday.fetch,
+    "icims": icims.fetch,
 }
 
 

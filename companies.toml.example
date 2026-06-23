@@ -1,12 +1,17 @@
-# companies.toml — Workday tenant display-name overrides.
+# companies.toml — ATS tenant display-name overrides.
 #
 # Copy this file to `companies.toml` (git-ignored) and tune it to your
-# search. The Workday adapter (src/job_agent/adapters/workday.py) resolves
-# each tenant slug from registry.txt (e.g. "chrobinson") to a human-readable
-# company name for the digest. A tenant with no entry here, or a missing
-# file entirely, falls back open to the tenant slug itself -- company feeds
-# the dedupe fingerprint (schema.py), so keep this mapping stable once set.
+# search. The Workday and iCIMS adapters
+# (src/job_agent/adapters/{workday,icims}.py) resolve each tenant slug from
+# registry.txt to a human-readable company name for the digest. A tenant with
+# no entry here, or a missing file entirely, falls back open to the tenant
+# slug itself -- company feeds the dedupe fingerprint (schema.py), so keep
+# this mapping stable once set.
 
 [display_names]
+# Workday tenants: keyed on the tenant slug (e.g. "chrobinson:CHRobinson:wd5").
 chrobinson = "C.H. Robinson"
 msd = "Merck"
+# iCIMS tenants: keyed on the tenant part of the slug ("tenant" in
+# `icims  tenant:host`, e.g. "examplecorp:careers.example.com").
+examplecorp = "Example Corp"
