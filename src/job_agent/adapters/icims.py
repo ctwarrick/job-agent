@@ -13,7 +13,7 @@ A single compound slug `tenant[:host]` keeps the
 `fetch(slug, *, company=...) -> list[Posting]` adapter contract unchanged;
 this module splits the slug internally. `host` defaults to
 `{tenant}.icims.com` when omitted, and is given explicitly for the common
-custom-domain case (e.g. "sig:careers.sig.com").
+custom-domain case (e.g. "hooli:careers.hooli.com").
 
 US scoping is deterministic on each job's `country_code`: keep `US`, drop a
 code positively identified as non-US, and retain an empty/missing code
@@ -46,7 +46,7 @@ def _split_slug(slug: str) -> tuple[str, str]:
 
     Args:
         slug: Either a bare `tenant` or a colon-delimited `tenant:host`
-            (e.g. "sig:careers.sig.com").
+            (e.g. "hooli:careers.hooli.com").
 
     Returns:
         A (tenant, host) tuple. When `slug` carries no host, `host` defaults
@@ -84,7 +84,7 @@ def fetch(slug: str, *, company: str | None = None, timeout: int = 20) -> list[P
     """Fetch all open US postings for one iCIMS (Jibe) tenant.
 
     Args:
-        slug: Compound `tenant[:host]` slug (e.g. "sig:careers.sig.com").
+        slug: Compound `tenant[:host]` slug (e.g. "hooli:careers.hooli.com").
         company: Display company name; defaults to the tenant slug when
             absent.
         timeout: Request timeout in seconds (default 20).

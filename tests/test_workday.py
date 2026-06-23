@@ -24,8 +24,8 @@ import requests as real_requests
 from job_agent.adapters import workday
 from job_agent.schema import Posting
 
-TENANT = "chrobinson"
-SITE = "CHRobinson"
+TENANT = "globex"
+SITE = "Globex"
 HOST = "wd5"
 SLUG = f"{TENANT}:{SITE}:{HOST}"
 
@@ -109,16 +109,16 @@ def fake_sleep(monkeypatch):
 
 
 def test_split_slug_parses_tenant_site_host() -> None:
-    assert workday._split_slug("chrobinson:CHRobinson:wd5") == (
-        "chrobinson",
-        "CHRobinson",
+    assert workday._split_slug("globex:Globex:wd5") == (
+        "globex",
+        "Globex",
         "wd5",
     )
 
 
 def test_split_slug_rejects_malformed_slug() -> None:
     with pytest.raises(ValueError):
-        workday._split_slug("chrobinson:CHRobinson")
+        workday._split_slug("globex:Globex")
 
 
 # --- 3: URL shape --------------------------------------------------------

@@ -121,7 +121,7 @@ def fake_sleep(monkeypatch):
 
 
 def test_split_slug_tenant_host() -> None:
-    assert icims._split_slug("sig:careers.sig.com") == ("sig", "careers.sig.com")
+    assert icims._split_slug("hooli:careers.hooli.com") == ("hooli", "careers.hooli.com")
 
 
 def test_split_slug_tenant_only_defaults_icims_host() -> None:

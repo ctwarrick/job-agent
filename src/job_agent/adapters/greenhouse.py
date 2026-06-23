@@ -27,7 +27,7 @@ def fetch(slug: str, *, company: str | None = None, timeout: int = 20) -> list[P
     full descriptions inline.
 
     Args:
-        slug: Greenhouse board slug (e.g. 'stripe').
+        slug: Greenhouse board slug (e.g. 'initech').
         company: Display company name; defaults to `slug` when absent.
         timeout: Request timeout in seconds (default 20).
 

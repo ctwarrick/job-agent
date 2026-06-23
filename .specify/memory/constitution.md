@@ -76,7 +76,7 @@ The production system runs in Azure, unattended, on a daily overnight schedule.
   point and MUST remain runnable locally with only environment variables and the
   git-ignored runtime files, so development and production share one code path.
 - Exception — personal runtime files: `profile.md`, `screening_prompt.md`, and
-  `registry.txt` cannot travel through git (Principle VI), so they are updated in
+  `registry.toml` cannot travel through git (Principle VI), so they are updated in
   Azure manually through a private mechanism chosen at plan time. This is the single
   sanctioned manual production operation.
 - All other configuration is supplied via environment (or the platform's secret
@@ -135,7 +135,7 @@ morning-coffee investigation, and the logs must be able to answer it.
 
 ### VI. Personal-Data Privacy (NON-NEGOTIABLE)
 
-- `profile.md`, `screening_prompt.md`, `registry.txt`, and `jobs.db` contain personal
+- `profile.md`, `screening_prompt.md`, `registry.toml`, and `jobs.db` contain personal
   data. They MUST never be committed, and their contents MUST never be quoted in
   specs, plans, PRs, commit messages, or agent output.
 - Secrets (API keys, connection strings) MUST live in environment variables locally

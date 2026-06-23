@@ -116,7 +116,7 @@ overall fetch continues and the failure is visible.
   non-blocking. No infra touched → `validate-infra.sh` N/A.
 - [X] T023 Local wiring (git-ignored, post-green, NOT committed): verified via
   the handoff-endorsed direct-call path
-  (`JOBAGENT_MAX_POSTINGS_PER_EMPLOYER=10 icims.fetch("sig:careers.sig.com")`)
+  (`JOBAGENT_MAX_POSTINGS_PER_EMPLOYER=10 icims.fetch("hooli:careers.hooli.com")`)
   to avoid mutating `registry.txt`/`jobs.db`. Returned 10 postings (cap
   honored), US-location parse correct, tenant-slug display-name fallback
   working. Adapter validated end-to-end against the live Jibe API.

@@ -75,7 +75,7 @@ records (vendor, reconstructed slug, resolved company) — mirroring `filter.py`
 
 **Independent Test**: `uv run pytest tests/test_registry.py` is green, and
 `load_registry('registry.toml')` returns 14 `Source` records with
-`Source(vendor='greenhouse', slug='stripe', company='stripe')`-shaped output
+`Source(vendor='greenhouse', slug='initech', company='initech')`-shaped output
 (quickstart §2); a malformed config raises `ValueError` naming the bad source
 (quickstart §3).
 
@@ -205,15 +205,15 @@ manual cutover (quickstart §5 — operational, outside this build).
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T017 [P] Sweep for any remaining `registry.txt` / `companies.toml`
+- [X] T017 [P] Sweep for any remaining `registry.txt` / `companies.toml`
   references in module docstrings or comments outside the files changed above
   (e.g. `src/job_agent/` docstrings) and update them to `registry.toml`.
-- [ ] T018 Run the full suite `uv run pytest` green; the reviewer re-runs it in
+- [X] T018 Run the full suite `uv run pytest` green; the reviewer re-runs it in
   fresh context. No infra (`infra/*.bicep*`) touched → `scripts/validate-infra.sh`
   not required for this feature.
-- [ ] T019 [P] (Optional, non-blocking) Refresh Constitution II prose that names
+- [X] T019 [P] (Optional, non-blocking) Refresh Constitution II prose that names
   `registry.txt` by name to `registry.toml` in `.specify/memory/constitution.md`.
-- [ ] T020 Run the full quickstart.md validation pass (§1–§4) as a final gate
+- [X] T020 Run the full quickstart.md validation pass (§1–§4) as a final gate
   before the human approves commit/PR.
 
 ---

@@ -3,7 +3,7 @@
 Workday CXS (Career Site eXperience Service) is reached at
     https://{host}.myworkdayjobs.com/wday/cxs/{tenant}/{site}/jobs
 
-A single compound slug `tenant:site:host` (e.g. "chrobinson:CHRobinson:wd5")
+A single compound slug `tenant:site:host` (e.g. "globex:Globex:wd5")
 keeps the `fetch(slug, *, company=...) -> list[Posting]` adapter contract
 unchanged; this module splits the slug internally.
 
@@ -34,7 +34,7 @@ from ..schema import Posting, normalize
 
 # Scope the jobs POST body's appliedFacets to US postings. Both the facet
 # key and the USA country WID are placeholders -- verify them live against
-# the chrobinson tenant before relying on faceted results.
+# the globex tenant before relying on faceted results.
 USA_COUNTRY_FACET_KEY = "locationCountry"
 USA_COUNTRY_WID = "bc33aa3152ec42d4995f4791a106ed09"
 
@@ -47,7 +47,7 @@ def _split_slug(slug: str) -> tuple[str, str, str]:
 
     Args:
         slug: Colon-delimited `tenant:site:host` (e.g.
-            "chrobinson:CHRobinson:wd5").
+            "globex:Globex:wd5").
 
     Returns:
         A (tenant, site, host) tuple.
@@ -68,7 +68,7 @@ def fetch(slug: str, *, company: str | None = None, timeout: int = 20) -> list[P
 
     Args:
         slug: Compound `tenant:site:host` slug (e.g.
-            "chrobinson:CHRobinson:wd5").
+            "globex:Globex:wd5").
         company: Display company name; defaults to the tenant slug when
             absent.
         timeout: Request timeout in seconds (default 20).

@@ -75,7 +75,7 @@ CREATE TABLE IF NOT EXISTS runs (
 def data_path(name: str) -> str:
     """Resolve `name` under JOBAGENT_DATA_DIR (default '.'), at call time.
 
-    Centralizing this means the default jobs.db path, registry.txt, and the
+    Centralizing this means the default jobs.db path, registry.toml, and the
     profile/screening-prompt runtime files all move together when
     JOBAGENT_DATA_DIR is set (e.g. an Azure Files mount), while the default
     '.' preserves today's exact local-development paths (e.g. "jobs.db",

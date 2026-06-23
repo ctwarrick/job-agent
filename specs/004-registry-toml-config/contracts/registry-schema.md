@@ -15,19 +15,19 @@ Illustrative entry (public example slugs only):
 ```toml
 [[source]]
 vendor = "greenhouse"
-slug   = "stripe"
+slug   = "initech"
 
 [[source]]
 vendor = "workday"
-name   = "C.H. Robinson"
-tenant = "chrobinson"
-site   = "CHRobinson"
+name   = "Globex Corporation"
+tenant = "globex"
+site   = "Globex"
 host   = "wd5"
 
 [[source]]
 vendor = "icims"
-tenant = "sig"
-host   = "careers.sig.com"   # omit for the {tenant}.icims.com default
+tenant = "hooli"
+host   = "careers.hooli.com"   # omit for the {tenant}.icims.com default
 # enabled = false            # disable without deleting
 ```
 

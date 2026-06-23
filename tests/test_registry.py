@@ -3,7 +3,7 @@
 Mirrors tests/test_filter.py: real per-test TOML fixtures written to tmp
 files (no network, no real registry.toml), exercised through
 `registry.load_registry()`. Only public example slugs are used (e.g.
-`stripe`) -- never real company names.
+`initech`) -- never real company names.
 """
 
 from __future__ import annotations
@@ -20,12 +20,12 @@ from job_agent import registry
 ALL_VENDORS_TOML = """
 [[source]]
 vendor = "greenhouse"
-slug   = "stripe"
+slug   = "initech"
 
 [[source]]
 vendor = "lever"
-slug   = "netflix"
-name   = "Netflix"
+slug   = "cyberdyne"
+name   = "Cyberdyne"
 
 [[source]]
 vendor = "workday"
@@ -36,8 +36,8 @@ host   = "wd5"
 
 [[source]]
 vendor = "icims"
-tenant = "sig"
-host   = "careers.sig.com"
+tenant = "hooli"
+host   = "careers.hooli.com"
 """
 
 
@@ -51,13 +51,13 @@ def test_load_registry_resolves_each_vendor_slug_and_company(tmp_path: Path) -> 
 
     gh = sources[0]
     assert gh.vendor == "greenhouse"
-    assert gh.slug == "stripe"
-    assert gh.company == "stripe"  # no `name` -> vendor default (slug)
+    assert gh.slug == "initech"
+    assert gh.company == "initech"  # no `name` -> vendor default (slug)
 
     lever_src = sources[1]
     assert lever_src.vendor == "lever"
-    assert lever_src.slug == "netflix"
-    assert lever_src.company == "Netflix"  # `name` present -> authoritative
+    assert lever_src.slug == "cyberdyne"
+    assert lever_src.company == "Cyberdyne"  # `name` present -> authoritative
 
     workday_src = sources[2]
     assert workday_src.vendor == "workday"
@@ -66,8 +66,8 @@ def test_load_registry_resolves_each_vendor_slug_and_company(tmp_path: Path) -> 
 
     icims_src = sources[3]
     assert icims_src.vendor == "icims"
-    assert icims_src.slug == "sig:careers.sig.com"
-    assert icims_src.company == "sig"  # no `name` -> vendor default (tenant)
+    assert icims_src.slug == "hooli:careers.hooli.com"
+    assert icims_src.company == "hooli"  # no `name` -> vendor default (tenant)
 
 
 # --- 2. enabled = false is omitted -------------------------------------------
@@ -76,11 +76,11 @@ def test_load_registry_resolves_each_vendor_slug_and_company(tmp_path: Path) -> 
 DISABLED_SOURCE_TOML = """
 [[source]]
 vendor = "greenhouse"
-slug   = "stripe"
+slug   = "initech"
 
 [[source]]
 vendor = "lever"
-slug   = "netflix"
+slug   = "cyberdyne"
 enabled = false
 """
 
@@ -93,7 +93,7 @@ def test_disabled_source_is_omitted(tmp_path: Path) -> None:
 
     assert len(sources) == 1
     assert sources[0].vendor == "greenhouse"
-    assert sources[0].slug == "stripe"
+    assert sources[0].slug == "initech"
 
 
 # --- 3. raises on unknown vendor ---------------------------------------------
@@ -102,7 +102,7 @@ def test_disabled_source_is_omitted(tmp_path: Path) -> None:
 UNKNOWN_VENDOR_TOML = """
 [[source]]
 vendor = "bamboohr"
-slug   = "stripe"
+slug   = "initech"
 """
 
 
@@ -139,11 +139,11 @@ def test_workday_missing_host_raises(tmp_path: Path) -> None:
 DUPLICATE_SOURCE_TOML = """
 [[source]]
 vendor = "greenhouse"
-slug   = "stripe"
+slug   = "initech"
 
 [[source]]
 vendor = "greenhouse"
-slug   = "stripe"
+slug   = "initech"
 """
 
 
@@ -151,7 +151,7 @@ def test_duplicate_vendor_slug_raises(tmp_path: Path) -> None:
     toml_path = tmp_path / "registry.toml"
     toml_path.write_text(DUPLICATE_SOURCE_TOML)
 
-    with pytest.raises(ValueError, match="stripe"):
+    with pytest.raises(ValueError, match="initech"):
         registry.load_registry(str(toml_path))
 
 
@@ -161,7 +161,7 @@ def test_duplicate_vendor_slug_raises(tmp_path: Path) -> None:
 TYPO_KEY_TOML = """
 [[source]]
 vendor = "greenhouse"
-slgu   = "stripe"
+slgu   = "initech"
 """
 
 
@@ -186,7 +186,7 @@ def test_load_registry_honors_data_dir_env(tmp_path: Path, monkeypatch: pytest.M
 
     assert len(sources) == 4
     assert sources[0].vendor == "greenhouse"
-    assert sources[0].slug == "stripe"
+    assert sources[0].slug == "initech"
 
 
 # --- 8. inline # comments are ignored ----------------------------------------
@@ -195,8 +195,8 @@ def test_load_registry_honors_data_dir_env(tmp_path: Path, monkeypatch: pytest.M
 COMMENTED_TOML = """
 [[source]]
 vendor = "icims"
-tenant = "sig"
-host   = "careers.sig.com"   # custom domain, omit for {tenant}.icims.com default
+tenant = "hooli"
+host   = "careers.hooli.com"   # custom domain, omit for {tenant}.icims.com default
 # enabled = false            # disable without deleting
 """
 
@@ -209,5 +209,5 @@ def test_inline_comments_are_ignored(tmp_path: Path) -> None:
 
     assert len(sources) == 1
     assert sources[0].vendor == "icims"
-    assert sources[0].slug == "sig:careers.sig.com"
-    assert sources[0].company == "sig"
+    assert sources[0].slug == "hooli:careers.hooli.com"
+    assert sources[0].company == "hooli"

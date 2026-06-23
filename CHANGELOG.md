@@ -13,7 +13,7 @@ once it reaches 1.0.0. Before 1.0.0, minor versions may include breaking changes
 - iCIMS adapter (`src/job_agent/adapters/icims.py`): fetches open US postings
   from iCIMS career sites fronted by Jibe's public, unauthenticated
   `/api/jobs` JSON endpoint. A compound `tenant[:host]` slug (e.g.
-  `sig:careers.sig.com`) in `registry.txt` keeps the `fetch(slug) ->
+  `hooli:careers.hooli.com`) in `registry.txt` keeps the `fetch(slug) ->
   list[Posting]` adapter contract unchanged, defaulting `host` to
   `{tenant}.icims.com` when omitted. Pagination walks every page until
   `totalCount` is exhausted, a US-location gate keeps `US` and
@@ -34,7 +34,7 @@ once it reaches 1.0.0. Before 1.0.0, minor versions may include breaking changes
 - Workday adapter (`src/job_agent/adapters/workday.py`): fetches open US
   postings from Workday CXS (Career Site eXperience Service) tenants. A
   single compound `tenant:site:host` slug (e.g.
-  `chrobinson:CHRobinson:wd5`) in `registry.txt` keeps the
+  `globex:Globex:wd5`) in `registry.txt` keeps the
   `fetch(slug) -> list[Posting]` adapter contract unchanged; the module
   splits it internally. Two round-trips per posting: a paginated `POST
   .../wday/cxs/{tenant}/{site}/jobs` (scoped to a US country facet) for the

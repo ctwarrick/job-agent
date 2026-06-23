@@ -22,7 +22,7 @@
 # --- Greenhouse: boards-api.greenhouse.io/v1/boards/{slug} ---
 [[source]]
 vendor = "greenhouse"
-slug   = "stripe"
+slug   = "initech"
 
 # --- Lever: api.lever.co/v0/postings/{slug} ---
 [[source]]
@@ -34,14 +34,14 @@ slug   = "example-co"
 # often differs from the brand name, and host is wd1 vs wd5 per tenant.
 [[source]]
 vendor = "workday"
-name   = "C.H. Robinson"
-tenant = "chrobinson"
-site   = "CHRobinson"
+name   = "Globex Corporation"
+tenant = "globex"
+site   = "Globex"
 host   = "wd5"
 
 # --- iCIMS (Jibe): https://{host}/api/jobs ; host defaults to {tenant}.icims.com ---
 [[source]]
 vendor = "icims"
-tenant = "sig"
-host   = "careers.sig.com"
+tenant = "hooli"
+host   = "careers.hooli.com"
 # enabled = false

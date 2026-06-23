@@ -5,9 +5,9 @@
 | Field | Type | Req? | Applies to | Notes |
 |---|---|---|---|---|
 | `vendor` | str | yes | all | Must be a key of `fetch.ADAPTERS` (`greenhouse`/`lever`/`workday`/`icims`). |
-| `slug` | str | yes | greenhouse, lever | The board slug, e.g. `stripe`. |
+| `slug` | str | yes | greenhouse, lever | The board slug, e.g. `initech`. |
 | `tenant` | str | yes | workday, icims | Workday/iCIMS tenant. |
-| `site` | str | yes | workday | Workday site, e.g. `CHRobinson`. |
+| `site` | str | yes | workday | Workday site, e.g. `Globex`. |
 | `host` | str | workday: yes; icims: no | workday, icims | Workday host (`wd5`/`wd1`); iCIMS optional custom domain. |
 | `name` | str | no | all | Display company name. **Authoritative** (resolved by the loader, passed to the adapter). |
 | `enabled` | bool | no (default `true`) | all | `false` → omitted from the loaded list. |
@@ -45,9 +45,9 @@ Dedupe fingerprints derive from `company` (`schema.Posting`). The resolved
 company replaces the old path *now*, so it MUST match the current effective
 company or every posting re-surfaces:
 - greenhouse / lever → **omit `name`** so company falls back to the slug
-  (e.g. `stripe`), exactly as today;
+  (e.g. `initech`), exactly as today;
 - workday / icims → set `name` to the **exact** former `companies.toml` display
-  string (e.g. `chrobinson` → `C.H. Robinson`).
+  string (e.g. `globex` → `Globex Corporation`).
 
 The populated `registry.toml` already satisfies this; verify before upload.
 

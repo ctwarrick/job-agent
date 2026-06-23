@@ -14,9 +14,9 @@ uv run pytest                             # full suite green
 ```bash
 uv run python -c "from job_agent.registry import load_registry; \
 v=load_registry('registry.toml'); print(len(v), v[0])"
-# expect: 14  Source(vendor='greenhouse', slug='stripe', company='stripe')
+# expect: 14  Source(vendor='greenhouse', slug='initech', company='initech')
 # fingerprint check: workday company == old companies.toml value
-#   (e.g. chrobinson -> 'C.H. Robinson'); gh/lever company == slug
+#   (e.g. globex -> 'Globex Corporation'); gh/lever company == slug
 ```
 
 ## 3. Fail-loud check (config error surfaces, nothing fetched)
