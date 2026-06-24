@@ -28,13 +28,18 @@ edit docs.
    release), newest version first, dated with today's date. Verify every
    identifier the changelog names (env vars, secret names, commands, file
    paths) against the code and templates — the same bar as the README check.
+   Any slug/tenant/host used to illustrate config syntax in CHANGELOG or README
+   MUST be a fictional placeholder, never a real registry target.
 3. Bump `version` in `pyproject.toml`: patch for fixes, minor for features
    and (while pre-1.0) breaking changes. Propose the bump with a one-line
    rationale — never decide a major bump silently.
 4. Run `uv lock` so `uv.lock` reflects the new version, then `uv run pytest`
    and confirm green.
 5. Check the README against current behavior — commands, env vars, the module
-   table, adapter list — by reading the code, not from memory. Fix drift.
+   table, adapter list — by reading the code, not from memory. Fix drift. When
+   a runtime/config file is renamed or removed, sweep the whole surface, not
+   just README: `Dockerfile` / `.dockerignore`, `docs/*.md` deploy guides,
+   `AGENTS.md`, and every `agents/*.md` sensitive-file list.
 6. Stop and report. Committing, tagging (`git tag vX.Y.Z`), pushing, and
    publishing (`gh release create vX.Y.Z`) happen only on explicit human
    go-ahead relayed by the orchestrator. If the repo ever gains a
@@ -56,5 +61,5 @@ Total ≤30 lines.
   finding to hand back, not something to fix here.
 - Committing, tagging, pushing, or publishing without the explicit human
   go-ahead.
-- Touching `profile.md`, `screening_prompt.md`, `registry.toml`, `jobs.db` —
-  and never quoting their contents in changelog or README text.
+- Touching the personal-data files listed in `AGENTS.md` — and never quoting
+  their contents in changelog or README text.

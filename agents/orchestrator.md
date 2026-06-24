@@ -73,8 +73,8 @@ Every subagent prompt must contain:
 - One role per dispatch; if a subagent's output shows it drifted out of scope,
   discard and re-dispatch rather than patching its output yourself.
 - Keep phase artifacts small (a plan is a page, a review verdict is a list).
-- Never quote `profile.md`, `screening_prompt.md`, `registry.toml`, or
-  `jobs.db` contents into artifacts, commits, or summaries.
+- Never quote the personal-data files listed in `AGENTS.md` into artifacts,
+  commits, or summaries.
 
 ## Out of scope
 

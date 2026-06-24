@@ -24,7 +24,10 @@ Sonnet — the work is well-scoped by the approved plan.
    object's interface uniformly (e.g. a fake `requests` returns a response
    object exposing `.json()` and `.raise_for_status()` on every path, never a
    bare payload on some) — a looser fake forces production to duck-type
-   around it.
+   around it. Any company/slug/tenant/host in a committed fixture MUST be an
+   obviously fictional placeholder (Globex, Initech, Acme, Hooli, Cyberdyne) —
+   never a real company's name, even a well-known one; a real name leaks
+   targets and reads as sanctioned.
 2. Write one test per plan test-list item; don't add speculative extras.
 3. Run `uv run pytest` and confirm the new tests **fail for the right
    reason** (the feature is missing — not an import typo or fixture error).

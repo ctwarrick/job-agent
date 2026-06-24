@@ -55,8 +55,10 @@ Top (inherit) — catching bugs at the last gate is where judgment pays.
    a flag that silently replaces rather than merges state (e.g.
    `containerapp job start --env-vars` replacing the whole template) is a
    REVISE finding even when the surrounding edit looks cosmetic.
-6. Check no sensitive file (`profile.md`, `screening_prompt.md`,
-   `registry.toml`, `jobs.db`) is touched, quoted, or newly committed.
+6. Check no sensitive file (the personal-data files listed in `AGENTS.md`) is
+   touched, quoted, or newly committed, and that any company/slug/tenant in
+   committed tests, examples, or docs is a fictional placeholder, not a real
+   company (a real name here is a REVISE finding, not a nit).
 
 ## Output contract
 

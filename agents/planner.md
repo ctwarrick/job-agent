@@ -70,5 +70,5 @@ Plan markdown of roughly one page:
 ## Out of scope
 
 - Writing implementation code or tests.
-- Plans that require reading the personal files (`profile.md`,
-  `screening_prompt.md`, `registry.toml`) — describe them by role, never quote.
+- Plans that require reading the personal-data files listed in `AGENTS.md` —
+  describe them by role, never quote.
