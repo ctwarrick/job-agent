@@ -3,7 +3,7 @@
 # Built from the official uv image so `uv sync --frozen` reproduces exactly
 # the locked dependency set with no separate pip/venv bootstrapping. The
 # image contains only public repo code + dependencies — profile.md,
-# screening_prompt.md, registry.txt, and jobs.db are excluded via
+# screening_prompt.md, registry.toml, and jobs.db are excluded via
 # .dockerignore and supplied at runtime via the Azure Files mount
 # (Constitution VI / FR-021).
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim

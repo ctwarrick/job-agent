@@ -16,7 +16,7 @@ Pipeline: **fetch → score → digest**, all stages in `src/job_agent/`:
 |---|---|
 | `schema.py` | normalized `Posting` + dedupe fingerprint |
 | `store.py` | SQLite: `postings` + `applications` tables |
-| `fetch.py` | reads `registry.txt`, dispatches adapters, upserts |
+| `fetch.py` | reads `registry.toml`, dispatches adapters, upserts |
 | `score.py` | LLM scoring against `profile.md` + `screening_prompt.md` |
 | `digest.py` | emails the daily digest |
 | `adapters/` | one module per ATS vendor (`greenhouse.py`, `lever.py`), each exposing `fetch(slug) -> list[Posting]` |
@@ -51,7 +51,7 @@ scripts/validate-infra.sh  # compile-check Bicep infra (no Azure needed)
 
 ## Sensitive files — never commit, never quote
 
-`profile.md`, `screening_prompt.md`, `registry.txt`, and `jobs.db` contain
+`profile.md`, `screening_prompt.md`, `registry.toml`, and `jobs.db` contain
 personal data and are git-ignored. Never commit them, and never paste their
 contents into plans, PRs, commit messages, or agent summaries.
 

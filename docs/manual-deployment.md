@@ -30,7 +30,7 @@ For background, see:
 - `az` CLI logged in as the maintainer (`az login`), with the Bicep CLI
   available (`az bicep install` if needed)
 - Docker, to build the image locally
-- Local copies of `profile.md`, `screening_prompt.md`, `registry.txt`, and
+- Local copies of `profile.md`, `screening_prompt.md`, `registry.toml`, and
   `filter.toml` (git-ignored, never referenced by content below — file names
   only; `filter.toml` starts as a copy of the committed `filter.toml.example`)
 - Anthropic API key and SMTP credentials at hand (values are typed directly
@@ -144,7 +144,7 @@ pass returns the full deployment outputs, including `storageAccountName` and
 
 ## 5. Upload the runtime files
 
-The job reads `profile.md`, `screening_prompt.md`, `registry.txt`, and
+The job reads `profile.md`, `screening_prompt.md`, `registry.toml`, and
 `filter.toml` from the Azure Files share at `/data` (`JOBAGENT_DATA_DIR=/data`).
 Upload your local, git-ignored copies by **file name only** — never paste their
 contents into a shell command, this doc, or any agent transcript:
@@ -154,7 +154,7 @@ SHARE=<file-share-name-from-output>
 
 az storage file upload --account-name "$STORAGE_ACCOUNT" --share-name "$SHARE" --source profile.md
 az storage file upload --account-name "$STORAGE_ACCOUNT" --share-name "$SHARE" --source screening_prompt.md
-az storage file upload --account-name "$STORAGE_ACCOUNT" --share-name "$SHARE" --source registry.txt
+az storage file upload --account-name "$STORAGE_ACCOUNT" --share-name "$SHARE" --source registry.toml
 az storage file upload --account-name "$STORAGE_ACCOUNT" --share-name "$SHARE" --source filter.toml
 ```
 

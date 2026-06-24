@@ -2,7 +2,7 @@
 # public image — they're injected at runtime via the Azure Files mount.
 profile.md
 screening_prompt.md
-registry.txt
+registry.toml
 jobs.db
 *.db
 

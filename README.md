@@ -12,7 +12,8 @@ job-agent/
   conftest.py          repo-root pytest config (lets tests `import main`)
   Dockerfile           runtime container image (uv sync --frozen)
   .dockerignore        excludes personal/runtime files from the image
-  registry.txt         your target companies -> ATS vendor + slug (git-ignored, personal)
+  registry.toml        your target companies -> ATS sources (git-ignored, personal)
+  registry.toml.example  committed template for registry.toml
   profile.md           YOUR profile (git-ignored, personal)
   screening_prompt.md  LLM screening prompt (git-ignored, personal)
   filter.toml          deterministic pre-LLM filter (git-ignored, personal)
@@ -30,7 +31,6 @@ job-agent/
       lever.py         public Lever postings API
       workday.py       Workday CXS (Career Site eXperience Service) API
       icims.py         iCIMS career sites via the public Jibe /api/jobs API
-  companies.toml.example  template for companies.toml (Workday/iCIMS tenant -> display name)
   tests/               pytest suite
   infra/               Azure Bicep (Container Apps Job, Key Vault, storage)
   scripts/             deployment bootstrap scripts
@@ -50,7 +50,7 @@ export DIGEST_TO=you@example.com      # optional, defaults to SMTP_USER
 ```
 
 Optional env vars:
-- `JOBAGENT_DATA_DIR` — directory holding `jobs.db`, `registry.txt`,
+- `JOBAGENT_DATA_DIR` — directory holding `jobs.db`, `registry.toml`,
   `profile.md`, and `screening_prompt.md` (default: current directory).
   Lets all stages run against a relocated/mounted data dir (e.g. an Azure
   Files share) with no path changes.
@@ -141,7 +141,7 @@ must change:
   deploy time (or as your fork's repo secrets for CI), never in
   `infra/main.bicepparam`. They wire the missed-deadline and cost-budget alerts.
 - **Your own runtime files + secrets.** Upload your git-ignored `profile.md`,
-  `screening_prompt.md`, `registry.txt`, and `filter.toml` to the Files share,
+  `screening_prompt.md`, `registry.toml`, and `filter.toml` to the Files share,
   and set the seven Key Vault secrets (`anthropic-api-key`, `smtp-host`/`-port`/
   `-user`/`-pass`, `digest-to`, `salary-floor`). None of these are ever committed.
 - **CI (optional).** To activate push-to-`main` deploys, record your fork's OIDC
@@ -155,20 +155,29 @@ action-group `test-notifications` command in
 the maintainer's overnight alert drill to use the bot.
 
 ## Adding a company
-Find their careers page, read the redirect URL:
-  boards.greenhouse.io/SLUG               -> `greenhouse  SLUG`
-  jobs.lever.co/SLUG                      -> `lever  SLUG`
-  {tenant}.{host}.myworkdayjobs.com/{site} -> `workday  tenant:site:host`
-  {tenant}.icims.com (or a custom domain)  -> `icims  tenant` or `icims  tenant:host`
-Add a line to registry.txt. For Workday and iCIMS, also add an optional
-`[display_names]` entry for the tenant in `companies.toml` (copy
-`companies.toml.example`) so the digest shows a real company name instead of
-the tenant slug. Done.
+Add a `[[source]]` table to `registry.toml` (copy `registry.toml.example`).
+Find their careers page and read the redirect URL for the fields:
+  boards.greenhouse.io/SLUG                -> vendor `greenhouse`, slug `SLUG`
+  jobs.lever.co/SLUG                       -> vendor `lever`, slug `SLUG`
+  {tenant}.{host}.myworkdayjobs.com/{site} -> vendor `workday`, tenant/site/host
+  {tenant}.icims.com (or a custom domain)  -> vendor `icims`, tenant (+ optional host)
+```toml
+[[source]]
+vendor = "workday"
+name   = "Globex Corporation"   # optional: the digest/dedupe company name
+tenant = "globex"
+site   = "Globex"
+host   = "wd5"
+```
+The optional `name` is the authoritative company for the digest (and the
+dedupe fingerprint); omit it and greenhouse/lever fall back to the slug,
+workday/icims to the tenant. Set `enabled = false` to park a source without
+deleting it. The loader fails loud on a typo or missing required field. Done.
 
 ## Adding a new ATS (Ashby, Workable, SmartRecruiters...)
 Write `src/job_agent/adapters/<vendor>.py` exposing
-`fetch(slug) -> list[Posting]`, then register it in `ADAPTERS` in fetch.py.
-The scorer needs no changes.
+`fetch(slug, *, company=None, timeout=20) -> list[Posting]`, then register it
+in `ADAPTERS` in fetch.py. The scorer needs no changes.
 
 ## Tuning the scorer
 Everything subjective lives in three runtime files the scorer reads — no code

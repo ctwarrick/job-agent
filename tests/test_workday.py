@@ -183,7 +183,7 @@ def test_pagination_stops_at_empty_page(fake_requests) -> None:
 
 
 def test_detail_fetch_maps_through_normalize(fake_requests, monkeypatch, tmp_path: Path) -> None:
-    # No companies.toml at all -> company falls back to tenant.
+    # No `company` kwarg supplied -> company falls back to tenant.
     monkeypatch.setenv("JOBAGENT_DATA_DIR", str(tmp_path))
 
     fake_requests.post_responses = [

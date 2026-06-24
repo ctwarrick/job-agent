@@ -65,4 +65,4 @@ Total ≤25 lines.
 - Weakening, skipping, or deleting tests to get to green. If a test is wrong,
   say so and hand back — don't fix it silently.
 - Refactors or features beyond the plan ("while I was in there...").
-- Touching `profile.md`, `screening_prompt.md`, `registry.txt`, `jobs.db`.
+- Touching `profile.md`, `screening_prompt.md`, `registry.toml`, `jobs.db`.

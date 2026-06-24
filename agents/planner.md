@@ -71,4 +71,4 @@ Plan markdown of roughly one page:
 
 - Writing implementation code or tests.
 - Plans that require reading the personal files (`profile.md`,
-  `screening_prompt.md`, `registry.txt`) — describe them by role, never quote.
+  `screening_prompt.md`, `registry.toml`) — describe them by role, never quote.

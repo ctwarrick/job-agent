@@ -56,7 +56,7 @@ Top (inherit) — catching bugs at the last gate is where judgment pays.
    `containerapp job start --env-vars` replacing the whole template) is a
    REVISE finding even when the surrounding edit looks cosmetic.
 6. Check no sensitive file (`profile.md`, `screening_prompt.md`,
-   `registry.txt`, `jobs.db`) is touched, quoted, or newly committed.
+   `registry.toml`, `jobs.db`) is touched, quoted, or newly committed.
 
 ## Output contract
 

@@ -97,8 +97,8 @@ def _page(total: int, jobs: list[dict]) -> dict:
 
 @pytest.fixture(autouse=True)
 def data_dir(tmp_path: Path, monkeypatch) -> Path:
-    # Isolate company resolution from any real git-ignored companies.toml so
-    # the default is a clean fallback-to-tenant.
+    # Isolate the adapter from any real JOBAGENT_DATA_DIR so the default is
+    # a clean fallback-to-tenant (no `company` kwarg supplied).
     monkeypatch.setenv("JOBAGENT_DATA_DIR", str(tmp_path))
     return tmp_path
 
@@ -145,7 +145,7 @@ def test_fetch_parses_jobs_page_into_postings(fake_requests) -> None:
     p = postings[0]
     assert isinstance(p, Posting)
     assert p.source == "icims"
-    assert p.company == TENANT  # no companies.toml -> fallback to tenant slug
+    assert p.company == TENANT  # no `company` kwarg -> fallback to tenant slug
     assert p.external_id == "11003"
     assert p.title == "Quantitative Developer"
     assert "Bala Cynwyd" in p.location

@@ -6,6 +6,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it reaches 1.0.0. Before 1.0.0, minor versions may include breaking changes.
 
+## [2.0.0] - 2026-06-24
+
+Source configuration moves from the line-oriented `registry.txt` (plus a
+separate `companies.toml` for display names) to a single validated
+`registry.toml`. **Breaking**: a deploy must upload `registry.toml` before
+running this version — the loader fails loud if it is absent.
+
+### Added
+
+- `registry.toml`: a validated TOML source registry, loaded by the new
+  `src/job_agent/registry.py` (`Source` dataclass + `load_registry`). One
+  `[[source]]` table per ATS board carries `vendor` plus the vendor-specific
+  fields (`slug` for greenhouse/lever; `tenant`/`site`/`host` for workday;
+  `tenant` + optional `host` for icims), an optional `enabled` flag, and an
+  optional `name`. Validation is fail-loud before any fetch: unknown vendor,
+  missing required field, duplicate `(vendor, slug)`, or an unrecognized key
+  each raise a `ValueError` naming the offending source, so a typo can no
+  longer silently drop a company. A committed `registry.toml.example`
+  documents the schema.
+- `name` as the authoritative digest company: when set on a source it feeds
+  the dedupe fingerprint (`schema.py`) directly; otherwise company falls back
+  to the slug (greenhouse/lever) or the tenant (workday/icims).
+
+### Changed
+
+- `fetch.main()` iterates the validated `Source` records and passes the
+  resolved `company` to each adapter. Every adapter's contract becomes
+  `fetch(slug, *, company: str | None = None, timeout=20)`; the per-adapter
+  `_resolve_company` helpers are gone.
+
+### Removed
+
+- `registry.txt` and its line-oriented `vendor  slug` format, superseded by
+  `registry.toml`.
+- `companies.toml` and `companies.toml.example`, plus the `_resolve_company`
+  display-name lookup — the `name` field on each `registry.toml` source
+  replaces the old `[display_names]` table.
+
 ## [1.2.0] - 2026-06-22
 
 ### Added

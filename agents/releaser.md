@@ -56,5 +56,5 @@ Total ≤30 lines.
   finding to hand back, not something to fix here.
 - Committing, tagging, pushing, or publishing without the explicit human
   go-ahead.
-- Touching `profile.md`, `screening_prompt.md`, `registry.txt`, `jobs.db` —
+- Touching `profile.md`, `screening_prompt.md`, `registry.toml`, `jobs.db` —
   and never quoting their contents in changelog or README text.
