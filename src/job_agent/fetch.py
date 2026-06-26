@@ -11,7 +11,7 @@ from __future__ import annotations
 import sys
 
 from . import store
-from .adapters import greenhouse, icims, lever, workday
+from .adapters import greenhouse, icims, lever, talemetry, workday
 from .registry import load_registry
 
 ADAPTERS = {
@@ -19,6 +19,7 @@ ADAPTERS = {
     "lever": lever.fetch,
     "workday": workday.fetch,
     "icims": icims.fetch,
+    "talemetry": talemetry.fetch,
 }
 
 

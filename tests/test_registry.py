@@ -211,3 +211,82 @@ def test_inline_comments_are_ignored(tmp_path: Path) -> None:
     assert sources[0].vendor == "icims"
     assert sources[0].slug == "hooli:careers.hooli.com"
     assert sources[0].company == "hooli"
+
+
+# --- 9. talemetry: host validates, slug == host, company resolution --------
+
+
+TALEMETRY_WITH_NAME_TOML = """
+[[source]]
+vendor = "talemetry"
+host   = "careers.example.com"
+name   = "Example Co"
+"""
+
+TALEMETRY_NO_NAME_TOML = """
+[[source]]
+vendor = "talemetry"
+host   = "careers.example.com"
+"""
+
+
+def test_talemetry_source_validates_slug_equals_host_and_company_from_name(
+    tmp_path: Path,
+) -> None:
+    toml_path = tmp_path / "registry.toml"
+    toml_path.write_text(TALEMETRY_WITH_NAME_TOML)
+
+    sources = registry.load_registry(str(toml_path))
+
+    assert len(sources) == 1
+    assert sources[0].vendor == "talemetry"
+    assert sources[0].slug == "careers.example.com"  # reconstructed slug == host
+    assert sources[0].company == "Example Co"  # `name` present -> authoritative
+
+
+def test_talemetry_source_company_defaults_to_host_when_name_absent(tmp_path: Path) -> None:
+    toml_path = tmp_path / "registry.toml"
+    toml_path.write_text(TALEMETRY_NO_NAME_TOML)
+
+    sources = registry.load_registry(str(toml_path))
+
+    assert len(sources) == 1
+    assert sources[0].slug == "careers.example.com"
+    assert sources[0].company == "careers.example.com"  # no `name` -> vendor default (host)
+
+
+# --- 10. talemetry: missing required field (host) raises --------------------
+
+
+TALEMETRY_MISSING_HOST_TOML = """
+[[source]]
+vendor = "talemetry"
+name   = "Example Co"
+"""
+
+
+def test_talemetry_missing_host_raises(tmp_path: Path) -> None:
+    toml_path = tmp_path / "registry.toml"
+    toml_path.write_text(TALEMETRY_MISSING_HOST_TOML)
+
+    with pytest.raises(ValueError, match="host"):
+        registry.load_registry(str(toml_path))
+
+
+# --- 11. talemetry: unrecognized key raises ----------------------------------
+
+
+TALEMETRY_TYPO_KEY_TOML = """
+[[source]]
+vendor = "talemetry"
+host   = "careers.example.com"
+hsot   = "typo"
+"""
+
+
+def test_talemetry_unrecognized_key_raises(tmp_path: Path) -> None:
+    toml_path = tmp_path / "registry.toml"
+    toml_path.write_text(TALEMETRY_TYPO_KEY_TOML)
+
+    with pytest.raises(ValueError, match="hsot"):
+        registry.load_registry(str(toml_path))

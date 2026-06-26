@@ -32,6 +32,7 @@ _REQUIRED_FIELDS = {
     "lever": ("slug",),
     "workday": ("tenant", "site", "host"),
     "icims": ("tenant",),
+    "talemetry": ("host",),
 }
 
 # All fields a vendor is allowed to set, beyond `_COMMON_KEYS`.
@@ -40,6 +41,7 @@ _VENDOR_FIELDS = {
     "lever": {"slug"},
     "workday": {"tenant", "site", "host"},
     "icims": {"tenant", "host"},
+    "talemetry": {"host"},
 }
 
 
@@ -143,6 +145,8 @@ def _reconstruct_slug(raw: dict[str, Any], vendor: str) -> str:
         return raw["slug"]
     if vendor == "workday":
         return f"{raw['tenant']}:{raw['site']}:{raw['host']}"
+    if vendor == "talemetry":
+        return raw["host"]
     # icims
     host = raw.get("host")
     return raw["tenant"] if not host else f"{raw['tenant']}:{host}"
@@ -164,6 +168,8 @@ def _resolve_company(raw: dict[str, Any], vendor: str) -> str:
         return name
     if vendor in ("greenhouse", "lever"):
         return raw["slug"]
+    if vendor == "talemetry":
+        return raw["host"]
     return raw["tenant"]
 
 

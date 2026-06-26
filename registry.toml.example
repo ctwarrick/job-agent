@@ -5,7 +5,7 @@
 # malformed config fails loud before any fetch. Inline `#` comments are fine.
 #
 # Fields:
-#   vendor   (required)  one of: greenhouse | lever | workday | icims
+#   vendor   (required)  one of: greenhouse | lever | workday | icims | talemetry
 #   slug     (greenhouse/lever)  the board slug
 #   tenant   (workday/icims)     the tenant
 #   site     (workday)           the Workday site
@@ -45,3 +45,9 @@ vendor = "icims"
 tenant = "hooli"
 host   = "careers.hooli.com"
 # enabled = false
+
+# --- Talemetry / TTC-Portals: https://{host}/jobs/ (HTML scrape) ---
+[[source]]
+vendor = "talemetry"
+name   = "Example Co"
+host   = "careers.example.com"

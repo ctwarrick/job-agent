@@ -31,6 +31,7 @@ job-agent/
       lever.py         public Lever postings API
       workday.py       Workday CXS (Career Site eXperience Service) API
       icims.py         iCIMS career sites via the public Jibe /api/jobs API
+      talemetry.py     Talemetry / TTC-Portals careers site (HTML scrape)
   tests/               pytest suite
   infra/               Azure Bicep (Container Apps Job, Key Vault, storage)
   scripts/             deployment bootstrap scripts
@@ -161,6 +162,7 @@ Find their careers page and read the redirect URL for the fields:
   jobs.lever.co/SLUG                       -> vendor `lever`, slug `SLUG`
   {tenant}.{host}.myworkdayjobs.com/{site} -> vendor `workday`, tenant/site/host
   {tenant}.icims.com (or a custom domain)  -> vendor `icims`, tenant (+ optional host)
+  a Talemetry / TTC-Portals careers host    -> vendor `talemetry`, host
 ```toml
 [[source]]
 vendor = "workday"
