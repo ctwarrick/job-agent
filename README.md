@@ -69,8 +69,8 @@ Optional env vars:
   `3.75`, `0.30` — the `claude-sonnet-4-6` rates). Override when the model or
   pricing changes.
 - `JOBAGENT_MAX_POSTINGS_PER_EMPLOYER` — optional cap on postings fetched per
-  tenant by the Workday and iCIMS adapters (some boards report 100+ open
-  postings for a single tenant).
+  tenant by the Workday, iCIMS, and Talemetry adapters (some boards report
+  100+ open postings for a single tenant).
 - `JOBAGENT_FORCE` — set to `1` to re-run a digest_date that already
   succeeded today.
 - `DIGEST_MIN_SKILLS` / `DIGEST_MAX_RISK` — digest thresholds (defaults `6`

@@ -6,6 +6,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it reaches 1.0.0. Before 1.0.0, minor versions may include breaking changes.
 
+## [2.1.0] - 2026-06-26
+
+### Added
+
+- Talemetry / TTC-Portals adapter (`src/job_agent/adapters/talemetry.py`):
+  a single-target, server-rendered HTML scraper for one careers site fronted
+  by the Talemetry / TTC-Portals recruitment-marketing platform, selected
+  from `registry.toml` via `vendor = "talemetry"` plus a required `host`
+  field. Listing and detail pages follow a `/jobs/{id}-{slug}/` shape; the
+  numeric job ID parsed from the URL becomes the posting's `external_id`,
+  while cross-run dedupe still uses the existing content-based fingerprint
+  (unchanged). The adapter fetches each job's detail page for the
+  description, honors the existing `JOBAGENT_MAX_POSTINGS_PER_EMPLOYER` cap,
+  applies a politeness sleep between requests, retains postings with no
+  parseable location (keep-if-any US gate), and emits a distinct warning when
+  a fetch parses zero postings (rather than treating it as a hard failure).
+  Registered as `"talemetry"` in `fetch.py`'s `ADAPTERS` dispatch table and
+  validated by `registry.py` alongside `greenhouse`/`lever`/`workday`/`icims`.
+  `registry.toml.example` documents the schema with the placeholder host
+  `careers.example.com`.
+- `beautifulsoup4` (on the pure-Python `html.parser` backend, no `lxml`): the
+  project's first heavy dependency beyond `anthropic`, added because the
+  Talemetry adapter is the first source with no JSON API — see
+  `specs/005-talemetry-adapter/plan.md` for the Constitution IV justification.
+
+### Known limitations
+
+- The Talemetry adapter ships **inactive**: it is fully implemented and
+  covered by stub-based tests, but no live source is wired into
+  `registry.toml`, and its CSS selectors and non-US location markers are
+  **unconfirmed placeholders**, never verified against live markup. The one
+  intended target fronts its careers board with a Cloudflare "managed
+  challenge" that a plain HTTP fetch cannot pass, so live recon
+  (`specs/005-talemetry-adapter/tasks.md` T017) was skipped. The capability
+  is ready to activate once that access problem is solved (e.g. a headless
+  browser or an alternate non-gated feed); until then it contributes no
+  postings to any digest.
+
 ## [2.0.0] - 2026-06-24
 
 Source configuration moves from the line-oriented `registry.txt` (plus a

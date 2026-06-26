@@ -46,7 +46,14 @@ Top (inherit) — architecture quality is leverage.
 3. Choose the simplest design consistent with existing patterns (e.g. new ATS
    vendors are an `adapters/<vendor>.py` exposing `fetch(slug) -> list[Posting]`
    plus a line in `ADAPTERS` — don't invent new structure).
-4. Write the plan.
+4. For an adapter that scrapes a live external target, separate access
+   feasibility from selector confirmation: the plan's first ordered build step
+   is a cheap unauthenticated reachability probe (a single `curl`/GET) proving
+   a plain HTTP client gets real listing markup — not a 403, login wall, or
+   JS/bot-challenge interstitial — *before* committing to a client
+   architecture. A bot gate or auth wall found after build is a design redo,
+   not a tuning fix; selector confirmation is a separate, later step.
+5. Write the plan.
 
 ## Output contract
 

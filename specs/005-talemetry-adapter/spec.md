@@ -15,8 +15,8 @@ predictable `/jobs/{id}-{slug}/` listing and detail URLs where the numeric job
 ID is a clean dedupe key. Configured in registry.toml by a `talemetry` vendor
 key plus a `host` field; conforms to the existing
 `fetch(slug, *, company=...) -> list[Posting]` contract; stub-based no-network
-tests. No real target-employer name may appear in any committed artifact —
-only the platform name and a placeholder host."
+tests. No real target-employer name may appear in this feature's deliverable
+artifacts — only the platform name and a placeholder host."
 
 ## Clarifications
 
@@ -179,10 +179,13 @@ confirm the overall fetch continues and surfaces the failure.
   in this feature.
 - **FR-011**: Tests MUST be stub-based with no network calls, following the
   existing patterns in `tests/`.
-- **FR-012**: No real target-employer name may appear in any committed
-  artifact (this spec, the adapter, its tests, or `registry.toml.example`).
-  Committed examples MUST use a placeholder host such as `careers.example.com`;
-  the real host lives only in the git-ignored `registry.toml`.
+- **FR-012**: No real target-employer name may appear in this feature's
+  deliverable artifacts (this spec, the adapter, its tests, or
+  `registry.toml.example`). Committed examples MUST use a placeholder host such
+  as `careers.example.com`; the real host lives only in the git-ignored
+  `registry.toml`. Scope note: this governs the deliverables listed here, not
+  the repo's pre-existing strategy notes under `plans/`, which may name real
+  targets.
 - **FR-013**: When a listing entry omits the full description, the adapter MUST
   fetch that job's detail page (`/jobs/{id}-{slug}/`) to obtain the description
   rather than excluding the posting. These detail fetches are bounded by the

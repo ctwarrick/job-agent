@@ -70,6 +70,11 @@ Every subagent prompt must contain:
   "self-checked" is recorded as *not done* so the resuming session re-runs the
   gate.
 - Don't dispatch for what a single read or grep answers — do it inline.
+- Before asking the human for a concrete fact (a host, ID, name, path), grep
+  the repo for it first — including `plans/`, `docs/`, and prior specs. A rule
+  that a value must not enter a feature's committed artifacts (e.g. a privacy
+  FR) does not mean it is absent from the repo's working notes; ask only after
+  an in-tree search comes up empty.
 - One role per dispatch; if a subagent's output shows it drifted out of scope,
   discard and re-dispatch rather than patching its output yourself.
 - Keep phase artifacts small (a plan is a page, a review verdict is a list).
