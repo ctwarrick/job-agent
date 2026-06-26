@@ -200,11 +200,14 @@ ID is skipped with a warning while the rest are retained.
 - [X] T016 [P] Privacy grep on the staged diff: no real employer name appears,
   and `careers.example.com` is the only host in registry.toml.example (FR-012,
   SC-006)
-- [ ] T017 Recon-confirm the placeholder selectors and non-US marker set in
-  src/job_agent/adapters/talemetry.py against the live target host and update
-  the named constants before the commit gate (research Decisions 2–3; the
-  Workday/iCIMS "verify live before commit" discipline) — requires the live
-  site, not stubbed
+- [~] T017 SKIPPED (live target unreachable). The intended host fronts its
+  board with a Cloudflare "managed challenge" — every path (listing, robots,
+  sitemap, /api guesses) returns HTTP 403 + the JS interstitial regardless of
+  User-Agent, so the `requests` + BeautifulSoup fetch cannot reach live markup
+  and the placeholder selectors / `_NON_US_MARKERS` cannot be confirmed.
+  Decision (2026-06-26): ship the capability DARK — committed and stub-green,
+  but no live source wired into `registry.toml`. Revisit (headless browser or
+  an alternate non-gated feed) only if the target's value is demonstrated.
 - [X] T018 [P] Docstring/README drift check: the talemetry module docstring
   states the why + data contract like the other adapters, and README/docs that
   enumerate supported vendors include talemetry
@@ -286,8 +289,9 @@ green-suite increment that does not break the previous.
 
 - [P] = different files, no incomplete dependency; [Story] = traceability
 - Verify each story's tests fail before implementing it
-- Selectors/markers are placeholders until T017 confirms them live — do not
-  treat the suite passing as proof the live scrape works
+- Selectors/markers are UNCONFIRMED placeholders — T017 is SKIPPED (live target
+  Cloudflare-gated), so the capability ships dark; a passing suite is NOT proof
+  the live scrape works
 - The dedupe key stays content-based in `schema.py`; `external_id` is the
   numeric ID but is NOT the fingerprint (plan.md "dedupe identity
   reconciliation") — do not author a test asserting an external_id fingerprint

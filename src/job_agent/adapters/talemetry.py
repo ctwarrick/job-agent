@@ -23,6 +23,15 @@ identity reconciliation").
 `requests` and `time` are imported at module level so tests can monkeypatch
 `talemetry.requests` / `talemetry.time.sleep`; the BeautifulSoup parse runs on
 canned HTML offline.
+
+Status: shipped DARK / inactive. The intended live target fronts its board
+with a Cloudflare "managed challenge" (a JS/browser-fingerprint gate) that a
+plain `requests` GET cannot pass -- every path returns the interstitial, not
+job HTML. So the selectors and `_NON_US_MARKERS` below are UNCONFIRMED
+placeholders, never verified against live markup, and no live source is wired
+into `registry.toml`. The adapter is fully stub-tested and ready to light up
+once the access problem is solved (a headless browser or an alternate
+non-gated feed); see specs/005-talemetry-adapter/tasks.md T017.
 """
 
 from __future__ import annotations
@@ -41,8 +50,9 @@ __all__ = ["fetch"]
 
 HEADERS = {"User-Agent": "jobagent/0.1 (personal job search)"}
 
-# Listing/detail selectors -- placeholders pending live confirmation
-# (specs/005-talemetry-adapter/tasks.md T017). confirm live before commit.
+# Listing/detail selectors -- UNCONFIRMED placeholders. The live target is
+# Cloudflare-gated (see module docstring), so these were never verified against
+# live markup; the adapter ships dark. T017 (skipped) tracks confirmation.
 _JOB_CARD_SELECTOR = "a.job-card"
 _JOB_TITLE_SELECTOR = ".job-title"
 _JOB_LOCATION_SELECTOR = ".job-location"
@@ -53,7 +63,7 @@ _JOB_ID_RE = re.compile(r"/jobs/(\d+)-")
 
 # Locations carrying one of these markers are positively non-US and dropped;
 # everything else (including empty/ambiguous) is kept (FR-005 keep-if-any).
-# confirm live before commit.
+# UNCONFIRMED set -- live target Cloudflare-gated; ships dark (T017).
 _NON_US_MARKERS = {"UK", "UNITED KINGDOM"}
 
 
