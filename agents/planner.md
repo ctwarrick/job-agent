@@ -23,7 +23,12 @@ Top (inherit) — architecture quality is leverage.
 2. When the plan or its contracts assert runtime requirements (env vars,
    file paths, exit behavior), verify each against the code — grep the
    `os.environ` reads and missing-config exits — and correct any
-   contradicting doc. Prior docs are claims, not facts. When the change makes
+   contradicting doc. Prior docs are claims, not facts. This includes any test
+   file the plan or quickstart names as existing-and-to-stay-green: glob for it
+   before asserting it — a referenced `tests/test_<vendor>.py` that doesn't
+   exist makes an FR-008-style "unchanged and green" guarantee untestable; when
+   that guarantee actually rests on indirect coverage, say so in the plan
+   rather than naming a file that isn't there. When the change makes
    an input newly *required* (a no-default param, a mandatory env var), grep
    every automated caller — CI workflows especially — and add the wiring to
    "Files to touch" in the same plan; don't defer a now-mandatory input to a

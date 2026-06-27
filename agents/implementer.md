@@ -64,5 +64,14 @@ Total ≤25 lines.
 
 - Weakening, skipping, or deleting tests to get to green. If a test is wrong,
   say so and hand back — don't fix it silently.
+- Bending the implementation to a test's fixture instead of to the behavior it
+  names. If passing a test requires reading a clock, counter, or cursor at an
+  unnatural point so control flow matches the fixture's tick/iteration order,
+  the fixture has pinned a wrong cadence — hand back to the test-writer with the
+  mismatch rather than reshaping the code to it. A "deliberate deviation" you
+  have to flag in your output (above) is a hand-back signal, not a
+  ship-it-with-a-note signal — especially on a guardrail (deadline, cap, retry
+  bound) whose fixture may never exercise the failure path the guardrail exists
+  for.
 - Refactors or features beyond the plan ("while I was in there...").
 - Touching the personal-data files listed in `AGENTS.md`.

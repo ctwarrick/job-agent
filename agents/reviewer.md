@@ -38,7 +38,13 @@ Top (inherit) — catching bugs at the last gate is where judgment pays.
    external API's GUID, facet key, or field name) and the diff hard-codes it,
    the stub suite cannot vouch for it — confirm the live-verification step ran
    and the value is confirmed before APPROVE, or make APPROVE conditional on
-   it and say so in the verdict.
+   it and say so in the verdict. For any guardrail in the diff (a deadline, a
+   cap, a retry bound), confirm it still fires when the operation it bounds
+   *fails* every time, not just when it succeeds — and that the fake
+   clock/counter in its test advances on the failure path too. A guardrail
+   proven only by a success-cadence fixture is a REVISE finding: that is
+   exactly the case where the implementation gets bent to the fixture and loops
+   unbounded on an all-failure input.
 5. Trace blast radius: when the diff changes a contract other files depend on
    (a required template/deploy param, a function signature, a log marker),
    grep every caller and CI workflow and confirm each still satisfies it. A

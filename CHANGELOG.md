@@ -6,6 +6,70 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it reaches 1.0.0. Before 1.0.0, minor versions may include breaking changes.
 
+## [2.2.0] - 2026-06-27
+
+Fixes the production outage where a large Workday board exhausted the daily
+run's execution window before scoring or digest ever ran.
+
+### Added
+
+- `src/job_agent/resilient.py`: a shared two-phase fetch contract
+  (`run_source`) for adapters whose boards require per-posting detail
+  retrieval or unbounded pagination. Listing fields (title, location,
+  posting date) are fetched first and run through the deterministic filter;
+  the expensive per-posting description is fetched only for postings that
+  survive, so request volume scales with filter survivors, not board size.
+  A per-source backstop — a cap on detail retrievals
+  (`JOBAGENT_MAX_DETAIL_PER_SOURCE`, default 150) and a wall-clock deadline
+  (`JOBAGENT_FETCH_DEADLINE_SECONDS`, default 300) — stops a pathological
+  board loudly rather than letting it exhaust the run. A per-item failure
+  (one bad detail page or listing page) is logged and skipped without
+  discarding postings already collected. A backstop-truncated source makes
+  forward progress on the untouched remainder on the next run rather than
+  re-truncating the same prefix, converging to full coverage within
+  `JOBAGENT_STALENESS_BOUND_DAYS` (default 7); a source that never converges
+  is surfaced as a persistent degradation rather than drifting silently.
+- New `source_progress` table (`store.py`) and helper functions tracking
+  each resilient source's cursor and truncation history across runs, so
+  forward progress survives process restarts.
+- `digest.py` gains a partial/degraded source category, distinct from both a
+  healthy source and a wholly-unreachable one: a source that was only
+  partly fetched (per-item skips, a backstop cutoff, or persistent
+  staleness) is named in the digest with the skipped count and whether the
+  backstop fired, so the loss is visible without reading logs. `main.py`
+  folds these partial sources into the run's `degraded` outcome alongside
+  wholly-failed sources and an unscored backlog.
+
+### Changed
+
+- Workday, iCIMS, and Talemetry adapters (the inactive Talemetry adapter
+  included, so the fix lands before it ever goes live) now expose a
+  two-phase `list_postings` + `fetch_description` contract and are driven
+  through `resilient.run_source` instead of returning a single `fetch()`
+  list. Per-page fetching tolerates an HTTP error, a timeout, or a
+  non-JSON/unparseable body on one page without losing postings already
+  collected from earlier pages. Greenhouse and Lever (single-request,
+  inline-description boards) are unchanged.
+- `fetch.main()` now returns a `(failed_sources, partial_sources)` tuple
+  instead of a single list, so callers can distinguish wholly-unreachable
+  sources from partially-fetched ones; `main.py` is the only caller and is
+  updated accordingly.
+- `store.upsert_postings()` now returns only the count of newly inserted
+  postings, no longer inflated 2x by the companion `applications`-row
+  insert; fetch log lines report the true "new" count.
+- The registry `max_per_employer` source key is now accepted but ignored
+  (documented as deprecated in `registry.toml.example`) rather than
+  enforced — per-source volume is now governed by the backstop above, which
+  applies regardless of board size instead of dropping a board's long tail.
+
+### Removed
+
+- `JOBAGENT_MAX_POSTINGS_PER_EMPLOYER`: superseded by the per-source
+  backstop (`JOBAGENT_MAX_DETAIL_PER_SOURCE` /
+  `JOBAGENT_FETCH_DEADLINE_SECONDS`) above. A board that previously relied
+  on this cap to stay small is now fetched in full, subject only to the
+  backstop and the deterministic filter.
+
 ## [2.1.0] - 2026-06-26
 
 ### Added

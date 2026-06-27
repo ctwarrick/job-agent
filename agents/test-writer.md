@@ -37,14 +37,21 @@ Sonnet — the work is well-scoped by the approved plan.
 4. Audit for masking before reporting red: fixtures must not pre-create
    state the code under test is responsible for creating (e.g. calling
    `store.init()` when testing `main()`'s startup); don't stub or delenv
-   away the very config path a test exists to pin; cover at least one
-   failure mode beyond the expected exception type; and confirm each test's
-   key assertion is actually reached — a stub that empties the data makes
-   the test vacuous. For any multi-run or stateful scenario, derive the
+   away the very config path a test exists to pin; cover every failure mode
+   the spec enumerates by name (an FR that lists "a read timeout, a non-JSON
+   response" needs a test per named mode, not just one), and for any guardrail
+   (a deadline, a cap, a retry bound) test the path the guardrail exists to
+   stop — including the all-failure case where nothing succeeds; and confirm
+   each test's key assertion is actually reached — a stub that empties the data
+   makes the test vacuous. For any multi-run or stateful scenario, derive the
    expected numbers from the spec by hand (e.g. cap C over N rows across
    K runs) and show the arithmetic in the test or its comment — a
    self-consistent but wrong expectation passes green and the reviewer
-   can't catch it.
+   can't catch it. A fake clock, counter, or cursor a test drives MUST advance
+   on every iteration the code under test takes — success and failure alike —
+   never only on the happy path: a fixture that ticks only on success pins an
+   implementation cadence and exempts the failure path, so an all-failure input
+   runs unbounded while the test still passes green.
 
 ## Output contract
 

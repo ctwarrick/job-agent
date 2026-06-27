@@ -28,6 +28,15 @@ Top model (the main session's model).
    `REVISE`, route the numbered findings back to the implementer (or planner,
    if the design is wrong) and re-review. If `APPROVE`, present the result to
    the human. **Stop. Do not commit/push without explicit go-ahead.**
+   For a multi-story feature, run Build→Review **per user story** (or per
+   independently shippable increment), not once for the whole feature: at each
+   user-story boundary, after its review APPROVES and the suite is green,
+   **stop and present that increment as a mandatory commit checkpoint** before
+   starting the next story. Do not build US1→US4 straight through and hand back
+   one large diff — shipping a multi-story feature as a single blob denies the
+   human the per-story commit boundaries the plan's structure exists to give
+   them. The human may waive a checkpoint, but the orchestrator always offers
+   it; it is not the orchestrator's call to skip.
 5. **Release (on request).** Before dispatching, surface the
    release-strategy choices to the human as explicit questions — target
    version (and whether interim minors roll up), commit granularity, and
@@ -49,6 +58,13 @@ Every subagent prompt must contain:
 - explicit file paths (never "look around the repo");
 - the expected output format and size limit (from the role card);
 - the relevant phase artifact(s) — never a prior phase's raw transcript.
+- a bounded reading set: name at most 2–3 files the subagent must open, and
+  **inline** any interface, signature, or contract it would otherwise
+  reconstruct by reading several large files. A build dispatch that requires
+  reading 6+ files exhausts a sonnet/haiku context before any work is done (a
+  red-phase dispatch was lost this way on 006-resilient-fetch); if the task
+  can't be scoped under that ceiling, split it or author the cross-file glue
+  inline.
 
 ## Rules
 
