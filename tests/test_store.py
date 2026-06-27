@@ -125,10 +125,37 @@ def test_upsert_postings_is_idempotent(tmp_path: Path) -> None:
     store.init(db)
     posting = _posting()
 
-    # one new posting row + one new applications row
-    assert store.upsert_postings([posting], db) == 2
+    # FR-011: return value counts the postings insert only, not the
+    # companion applications insert (previously total_changes double-counted
+    # 1 postings row + 1 applications row == 2 for one brand-new posting).
+    assert store.upsert_postings([posting], db) == 1
     # re-running with the same posting changes nothing
     assert store.upsert_postings([posting], db) == 0
+
+
+def test_upsert_postings_counts_only_new_postings_not_double(tmp_path: Path) -> None:
+    db = str(tmp_path / "jobs.db")
+    store.init(db)
+    # Distinct titles -> distinct fingerprints, so all 3 are brand-new rows.
+    postings = [
+        _posting(external_id=str(i), title=title, url=f"https://example.com/{i}")
+        for i, title in enumerate(["Engineer", "Designer", "Analyst"])
+    ]
+
+    # K=3 brand-new postings -> 3 postings-table inserts, not 2*K=6.
+    assert store.upsert_postings(postings, db) == 3
+
+
+def test_upsert_postings_returns_zero_when_all_already_exist(tmp_path: Path) -> None:
+    db = str(tmp_path / "jobs.db")
+    store.init(db)
+    postings = [
+        _posting(external_id=str(i), title=title, url=f"https://example.com/{i}")
+        for i, title in enumerate(["Engineer", "Designer", "Analyst"])
+    ]
+    store.upsert_postings(postings, db)
+
+    assert store.upsert_postings(postings, db) == 0
 
 
 def test_unscored_returns_only_unscored_postings(tmp_path: Path) -> None:
@@ -488,6 +515,123 @@ def test_digest_date_honors_jobagent_tz(monkeypatch) -> None:
     monkeypatch.setenv("JOBAGENT_TZ", "UTC")
     expected = datetime.now(ZoneInfo("UTC")).strftime("%Y-%m-%d")
     assert store.digest_date() == expected
+
+
+# --- existing_external_ids (contracts/resilient-fetch.md §3) ---------------
+
+
+def test_existing_external_ids_empty_when_nothing_stored(tmp_path: Path) -> None:
+    db = str(tmp_path / "jobs.db")
+    store.init(db)
+
+    assert store.existing_external_ids("greenhouse", "acme", db) == set()
+
+
+def test_existing_external_ids_returns_stored_ids_for_source_and_company(
+    tmp_path: Path,
+) -> None:
+    db = str(tmp_path / "jobs.db")
+    store.init(db)
+    postings = [
+        _posting(external_id="1", title="Engineer", url="https://example.com/1"),
+        _posting(external_id="2", title="Designer", url="https://example.com/2"),
+    ]
+    store.upsert_postings(postings, db)
+
+    assert store.existing_external_ids("greenhouse", "acme", db) == {"1", "2"}
+
+
+def test_existing_external_ids_scoped_by_source_and_company(tmp_path: Path) -> None:
+    db = str(tmp_path / "jobs.db")
+    store.init(db)
+    # Distinct titles -> distinct fingerprints so INSERT OR IGNORE doesn't
+    # collapse these rows together (fingerprint = title|company|location|desc).
+    same_source_other_company = _posting(
+        source="greenhouse", company="globex", external_id="9", title="Other Company"
+    )
+    other_source_same_company = _posting(
+        source="lever", company="acme", external_id="9", title="Other Source"
+    )
+    target = _posting(source="greenhouse", company="acme", external_id="1", title="Engineer")
+    store.upsert_postings([same_source_other_company, other_source_same_company, target], db)
+
+    assert store.existing_external_ids("greenhouse", "acme", db) == {"1"}
+
+
+# --- source_progress table (data-model.md "source_progress table") ---------
+
+
+def test_init_creates_source_progress_table(tmp_path: Path) -> None:
+    db = str(tmp_path / "jobs.db")
+    store.init(db)
+    with store.connect(db) as conn:
+        tables = {
+            r["name"] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+    assert "source_progress" in tables
+
+
+def test_get_last_converged_returns_none_before_any_mark_or_seed(tmp_path: Path) -> None:
+    db = str(tmp_path / "jobs.db")
+    store.init(db)
+
+    assert store.get_last_converged("greenhouse", "acme", db) is None
+
+
+def test_mark_converged_then_get_returns_stored_value_and_overwrites(tmp_path: Path) -> None:
+    db = str(tmp_path / "jobs.db")
+    store.init(db)
+
+    store.mark_converged("greenhouse", "acme", "2026-06-11T00:00:00+00:00", db)
+    assert store.get_last_converged("greenhouse", "acme", db) == "2026-06-11T00:00:00+00:00"
+
+    # a second mark_converged with a different value overwrites
+    store.mark_converged("greenhouse", "acme", "2026-06-12T00:00:00+00:00", db)
+    assert store.get_last_converged("greenhouse", "acme", db) == "2026-06-12T00:00:00+00:00"
+
+
+def test_seed_source_sets_value_when_absent_but_does_not_overwrite(tmp_path: Path) -> None:
+    db = str(tmp_path / "jobs.db")
+    store.init(db)
+
+    store.seed_source("greenhouse", "acme", "2026-06-11T00:00:00+00:00", db)
+    assert store.get_last_converged("greenhouse", "acme", db) == "2026-06-11T00:00:00+00:00"
+
+    # a later seed_source with a different value leaves the original untouched
+    store.seed_source("greenhouse", "acme", "2026-06-20T00:00:00+00:00", db)
+    assert store.get_last_converged("greenhouse", "acme", db) == "2026-06-11T00:00:00+00:00"
+
+    # but mark_converged after a seed DOES overwrite
+    store.mark_converged("greenhouse", "acme", "2026-06-25T00:00:00+00:00", db)
+    assert store.get_last_converged("greenhouse", "acme", db) == "2026-06-25T00:00:00+00:00"
+
+
+def test_migrate_adding_source_progress_does_not_alter_existing_score(
+    tmp_path: Path,
+) -> None:
+    # FR-009 preservation, following the pattern of
+    # test_migrate_does_not_alter_existing_skills_fit: the new table is purely
+    # additive and an existing posting/score row is untouched by store.init().
+    db = str(tmp_path / "jobs.db")
+    store.init(db)
+    posting = _posting()
+    store.upsert_postings([posting], db)
+    with store.connect(db) as conn:
+        conn.execute(
+            "UPDATE postings SET skills_fit=7 WHERE fingerprint=?",
+            (posting.fingerprint,),
+        )
+
+    # re-running init (which creates source_progress) must leave the
+    # existing score untouched
+    store.init(db)
+
+    with store.connect(db) as conn:
+        row = conn.execute(
+            "SELECT skills_fit FROM postings WHERE fingerprint=?",
+            (posting.fingerprint,),
+        ).fetchone()
+    assert row["skills_fit"] == 7
 
 
 # --- retention purge (FR-015, data-model.md "Retention rules") --------------

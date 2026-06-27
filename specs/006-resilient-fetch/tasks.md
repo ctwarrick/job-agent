@@ -33,9 +33,11 @@ Single project: `src/job_agent/` and `tests/` at repo root.
 
 **Purpose**: Establish a known-green starting point and protect out-of-scope work.
 
-- [ ] T001 Run `uv run pytest` to confirm the suite is green, and confirm
-      `tests/test_greenhouse.py` and `tests/test_lever.py` exist and pass — they
-      MUST stay untouched and green throughout (FR-008). No code change.
+- [X] T001 Baseline established: `uv run pytest` green (181 passed). Note: there
+      are **no** dedicated `test_greenhouse.py` / `test_lever.py` files — those
+      adapters are exercised only indirectly (`test_fetch.py`, `test_main.py`).
+      FR-008 is therefore enforced by leaving `greenhouse.py` / `lever.py` and
+      their plain-`fetch` dispatch **byte-unchanged**, not by a dedicated suite.
 
 ---
 
@@ -46,19 +48,19 @@ depends on. Additive only — no destructive migration (FR-009).
 
 **⚠️ CRITICAL**: US1/US2/US3 cannot begin until this phase is complete.
 
-- [ ] T002 [P] Write failing tests in `tests/test_store.py` for: (a)
+- [X] T002 [P] Write failing tests in `tests/test_store.py` for: (a)
       `existing_external_ids(source, company)` returning the set of stored
       external_ids for a source (empty set when none); (b) `source_progress`
       helpers `get_last_converged` / `mark_converged` (upsert) / `seed_source`
       (insert-if-absent); (c) `init()` creating `source_progress` idempotently
       with existing postings/scores/applications rows preserved (FR-009).
-- [ ] T003 Add `source_progress(source, company, last_converged_at)` table to
+- [X] T003 Add `source_progress(source, company, last_converged_at)` table to
       `store.init()` as an idempotent `CREATE TABLE IF NOT EXISTS` (additive
       migration, PK `(source, company)`) in `src/job_agent/store.py`.
-- [ ] T004 Implement `existing_external_ids(source, company, path=None)` in
+- [X] T004 Implement `existing_external_ids(source, company, path=None)` in
       `src/job_agent/store.py` (`SELECT external_id FROM postings WHERE
       source=? AND company=?` → `set[str]`).
-- [ ] T005 Implement `get_last_converged` / `mark_converged` / `seed_source`
+- [X] T005 Implement `get_last_converged` / `mark_converged` / `seed_source`
       `(source, company, ...)` in `src/job_agent/store.py`.
 
 **Checkpoint**: forward-progress and staleness state persist; store tests green.
@@ -80,7 +82,7 @@ run describe only the rest (two runs cover all, no re-described prefix).
 
 ### Tests for User Story 1 (write first, observe red)
 
-- [ ] T006 [P] [US1] Write failing tests in `tests/test_resilient.py` covering:
+- [X] T006 [P] [US1] Write failing tests in `tests/test_resilient.py` covering:
       backstop config defaults (150/300/7) and fail-loud on invalid values;
       filter-before-detail (rejected stubs trigger **zero** `fetch_description`
       calls; detail-call count == survivor count, SC-004); backstop (cap ⇒
@@ -90,7 +92,7 @@ run describe only the rest (two runs cover all, no re-described prefix).
       (`last_converged` older than bound + `remaining>0` ⇒ `persistent=True`;
       `remaining==0` ⇒ `mark_converged` called, `persistent=False`; new source
       seeds `last_converged=now`).
-- [ ] T007 [P] [US1] Write failing tests in `tests/test_workday.py` for the
+- [X] T007 [P] [US1] Write failing tests in `tests/test_workday.py` for the
       two-phase shape: `list_postings` paginates the listing only (no detail
       calls) returning stubs with `description=""`; `fetch_description` does the
       single detail GET; a large stub board with a small survivor set issues one
@@ -100,12 +102,12 @@ run describe only the rest (two runs cover all, no re-described prefix).
 
 ### Implementation for User Story 1
 
-- [ ] T008 [US1] Create `src/job_agent/resilient.py` with the backstop config
+- [X] T008 [US1] Create `src/job_agent/resilient.py` with the backstop config
       readers (`JOBAGENT_MAX_DETAIL_PER_SOURCE`=150, `JOBAGENT_FETCH_DEADLINE_
       SECONDS`=300, `JOBAGENT_STALENESS_BOUND_DAYS`=7; env-read, fail-loud on
       non-int/≤0) and the `SourceResult` dataclass (`source, company_slug, new,
       skipped, truncated, remaining, persistent, error`).
-- [ ] T009 [US1] Implement `resilient.run_source(adapter, source, *, criteria,
+- [X] T009 [US1] Implement `resilient.run_source(adapter, source, *, criteria,
       store_, clock=time.monotonic, now=...)` in `src/job_agent/resilient.py`:
       `list_postings` → listing-level `classify(dict_view(stub), criteria)`
       filter (FR-003/004) → skip `existing_external_ids` (forward progress) →
@@ -114,12 +116,12 @@ run describe only the rest (two runs cover all, no re-described prefix).
       description=desc)` → `store_.upsert_postings(described)` →
       `mark_converged`/`seed_source`/`persistent` bookkeeping → return
       `SourceResult(new=len(described), ...)`. (depends on T008, Phase 2)
-- [ ] T010 [P] [US1] Refactor `src/job_agent/adapters/workday.py` into
+- [X] T010 [P] [US1] Refactor `src/job_agent/adapters/workday.py` into
       `list_postings(slug, *, company=None, timeout=20)` (paginate listing,
       `external_id=externalPath`, `description=""`) and `fetch_description(
       posting, *, timeout=20)` (the `GET .../{externalPath}` detail call);
       remove the `JOBAGENT_MAX_POSTINGS_PER_EMPLOYER` per-employer cap.
-- [ ] T011 [US1] Route Workday through `resilient.run_source` in
+- [X] T011 [US1] Route Workday through `resilient.run_source` in
       `src/job_agent/fetch.py`: `ADAPTERS` maps in-scope vendors to the
       two-phase module and dispatches them via `run_source`; out-of-scope
       vendors keep their plain `fetch`. Aggregate the returned `SourceResult`
@@ -144,36 +146,36 @@ a `partial_sources` entry renders a degraded block in the digest.
 
 ### Tests for User Story 2 (write first, observe red)
 
-- [ ] T012 [P] [US2] Add failing tests in `tests/test_resilient.py`: Nth
+- [X] T012 [P] [US2] Add failing tests in `tests/test_resilient.py`: Nth
       `fetch_description` raises ⇒ skipped+1, that posting unstored, others
       stored, run continues (FR-005); whole `list_postings` raises ⇒
       `SourceResult.error` set, no postings (FR-006 containment).
-- [ ] T013 [P] [US2] Add failing tests in `tests/test_workday.py`: a listing
+- [X] T013 [P] [US2] Add failing tests in `tests/test_workday.py`: a listing
       page failure mid-pagination retains earlier pages and continues; a
       survivor whose `fetch_description` fails is left unstored and unscored
       (FR-010), never scored on empty text.
-- [ ] T014 [P] [US2] Write failing tests in `tests/test_fetch.py`: `fetch.main`
+- [X] T014 [P] [US2] Write failing tests in `tests/test_fetch.py`: `fetch.main`
       returns `(failed_sources, partial_sources)`; a source with `skipped>0` or
       `truncated` or `persistent` appears in `partial_sources` with
       `{source, company_slug, new, skipped, truncated, persistent}`.
-- [ ] T015 [P] [US2] Write failing tests in `tests/test_digest.py`: a
+- [X] T015 [P] [US2] Write failing tests in `tests/test_digest.py`: a
       `partial_sources` entry renders a "partial / degraded" block distinct from
       "unreachable" (failed) and from a healthy run; truncated-within-bound vs
       persistent-beyond-bound messages differ; no raw adapter error text appears
       (Principle VI).
-- [ ] T016 [US2] Add per-item `try/except` skip-not-abort (increment `skipped`,
+- [X] T016 [US2] Add per-item `try/except` skip-not-abort (increment `skipped`,
       log, continue; leave failed-description survivors unstored) to the
       `run_source` detail loop in `src/job_agent/resilient.py`.
-- [ ] T017 [P] [US2] Add per-page skip-not-abort to `workday.list_postings`
+- [X] T017 [P] [US2] Add per-page skip-not-abort to `workday.list_postings`
       (log + skip a failed page, retain earlier pages, raise only on
       whole-source failure) in `src/job_agent/adapters/workday.py`.
-- [ ] T018 [US2] Aggregate `SourceResult`s in `fetch.main` into
+- [X] T018 [US2] Aggregate `SourceResult`s in `fetch.main` into
       `(failed_sources, partial_sources)` and pass `partial_sources` to the
       digest in `src/job_agent/fetch.py`.
-- [ ] T019 [P] [US2] Extend `digest._degradation_facts` / `_messages` with the
+- [X] T019 [P] [US2] Extend `digest._degradation_facts` / `_messages` with the
       "partial / degraded" category (truncated vs persistent wording, no raw
       error text) in `src/job_agent/digest.py`.
-- [ ] T020 [US2] Wire `partial_sources` through the fetch→digest call site in
+- [X] T020 [US2] Wire `partial_sources` through the fetch→digest call site in
       `main.py` if the signature changed. (depends on T018)
 
 **Checkpoint**: a bad item/page no longer zeroes a board, and partial
@@ -195,29 +197,32 @@ no second call when the stub already carries an inline description (call count
 
 ### Tests for User Story 3 (write first, observe red)
 
-- [ ] T021 [P] [US3] Write failing tests in `tests/test_icims.py`:
+- [X] T021 [P] [US3] Write failing tests in `tests/test_icims.py`:
       `list_postings` returns stubs carrying the inline description
       (`external_id=req_id`); `fetch_description` is a pass-through that makes
       **no** second request (assert call count 0) when description is present;
       per-page resilience; per-employer cap removed; an empty inline description
       is excluded from scoring and not stored as an empty-description row.
-- [ ] T022 [P] [US3] Write failing tests in `tests/test_talemetry.py`:
+- [X] T022 [P] [US3] Write failing tests in `tests/test_talemetry.py`:
       `list_postings` paginates job cards (title/location/date, `description=""`,
       numeric `external_id`); `fetch_description` does the detail GET + selector
       parse; under `run_source` the dark adapter is bounded (backstop) and
       per-item resilient (SC-006).
-- [ ] T023 [US3] Refactor `src/job_agent/adapters/icims.py`: `list_postings`
+- [X] T023 [US3] Refactor `src/job_agent/adapters/icims.py`: `list_postings`
       returns inline-description stubs; `fetch_description` is a pass-through;
       add per-page skip-not-abort; remove the per-employer cap; keep excluding
       empty-inline-description postings (do not store empty-description rows).
-- [ ] T024 [P] [US3] Refactor `src/job_agent/adapters/talemetry.py` into
+- [X] T024 [P] [US3] Refactor `src/job_agent/adapters/talemetry.py` into
       `list_postings` (card pagination) + `fetch_description` (detail GET +
       parse); add per-page skip-not-abort; remove the per-employer cap.
-- [ ] T025 [US3] Add iCIMS and Talemetry to the in-scope `ADAPTERS` set routed
+- [X] T025 [US3] Add iCIMS and Talemetry to the in-scope `ADAPTERS` set routed
       through `resilient.run_source` in `src/job_agent/fetch.py` (in-scope =
       Workday + iCIMS + Talemetry). (depends on T023, T024)
-- [ ] T026 [US3] Re-run `tests/test_greenhouse.py` and `tests/test_lever.py`
-      and confirm they are unchanged and green (FR-008). No edits.
+- [X] T026 [US3] Confirm FR-008: `git diff --stat src/job_agent/adapters/
+      greenhouse.py src/job_agent/adapters/lever.py` is empty (those adapters and
+      their plain-`fetch` dispatch are untouched) and the full `uv run pytest`
+      suite — including `test_fetch.py` / `test_main.py` that exercise them — is
+      green. There are no dedicated greenhouse/lever test files.
 
 **Checkpoint**: all three in-scope adapters bounded + resilient incl. dark
 Talemetry; out-of-scope adapters untouched; full suite green.
@@ -233,9 +238,9 @@ companion applications insert (FR-011). Independent — touches `store.py` +
 **Independent Test**: Upsert K brand-new postings ⇒ return value `== K` (not
 `2K`); upsert when all already exist ⇒ return `0`.
 
-- [ ] T027 [P] [US4] Write failing tests in `tests/test_store.py`: upsert K
+- [X] T027 [P] [US4] Write failing tests in `tests/test_store.py`: upsert K
       brand-new postings returns K (not 2K); upsert when all exist returns 0.
-- [ ] T028 [US4] Fix `store.upsert_postings` to return the postings-insert delta
+- [X] T028 [US4] Fix `store.upsert_postings` to return the postings-insert delta
       alone — snapshot `conn.total_changes` between the postings `executemany`
       and the applications `executemany` — in `src/job_agent/store.py`.
 
@@ -245,12 +250,12 @@ companion applications insert (FR-011). Independent — touches `store.py` +
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T029 [P] Make the registry `max_per_employer` key accepted-but-ignored
+- [X] T029 [P] Make the registry `max_per_employer` key accepted-but-ignored
       (documented deprecated, no fail-loud on load) in
       `src/job_agent/registry.py`.
-- [ ] T030 Run the `quickstart.md` validation: full `uv run pytest` green plus
+- [X] T030 Run the `quickstart.md` validation: full `uv run pytest` green plus
       the per-story targeted scenarios (US1–US4, staleness, degraded digest).
-- [ ] T031 [P] README/docs drift check for the new env vars and fetch behavior
+- [X] T031 [P] README/docs drift check for the new env vars and fetch behavior
       (`README.md`). CHANGELOG/version bump are deferred to the release phase.
 
 ---

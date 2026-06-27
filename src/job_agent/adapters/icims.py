@@ -9,11 +9,25 @@ second round-trip). The shape was confirmed live by the Phase 0 recon spike
 (specs/003-icims-adapter/research.md): top-level `jobs` (list, ~10/page),
 `totalCount`, and each list item wrapped as `{"data": {...job...}}`.
 
-A single compound slug `tenant[:host]` keeps the
-`fetch(slug, *, company=...) -> list[Posting]` adapter contract unchanged;
-this module splits the slug internally. `host` defaults to
-`{tenant}.icims.com` when omitted, and is given explicitly for the common
-custom-domain case (e.g. "hooli:careers.hooli.com").
+A single compound slug `tenant[:host]` keeps the two-phase adapter contract
+(see `job_agent.resilient`) scoped per tenant; this module splits the slug
+internally. `host` defaults to `{tenant}.icims.com` when omitted, and is
+given explicitly for the common custom-domain case (e.g.
+"hooli:careers.hooli.com").
+
+Unlike Workday, iCIMS returns the full job description inline in the listing
+JSON, so this adapter is "already described":
+  1. `list_postings(slug, *, company=...) -> list[Posting]` walks
+     `GET .../api/jobs?page={n}`, filtering to US postings and excluding any
+     posting whose inline description is empty/blank, returning fully
+     -populated `Posting`s with zero detail round-trips. A failure on the
+     first page raises (whole-source failure); a failure after at least one
+     page has already succeeded is logged and stops pagination, retaining
+     the pages already fetched (FR-005/006).
+  2. `fetch_description(posting, ...) -> str` is a pure pass-through to the
+     `description` already inline on the stub -- no network call -- present
+     only so the shared two-phase contract is uniform across vendors;
+     `resilient.run_source` short-circuits on it.
 
 US scoping is deterministic on each job's `country_code`: keep `US`, drop a
 code positively identified as non-US, and retain an empty/missing code
@@ -30,10 +44,11 @@ never be empty.
 
 from __future__ import annotations
 
-import os
+import sys
 import time
 
 import requests
+from requests import RequestException
 
 from ..schema import Posting, normalize
 
@@ -80,8 +95,11 @@ def _is_us(country_code: str) -> bool:
     return country_code.strip().upper() == "US"
 
 
-def fetch(slug: str, *, company: str | None = None, timeout: int = 20) -> list[Posting]:
-    """Fetch all open US postings for one iCIMS (Jibe) tenant.
+def list_postings(slug: str, *, company: str | None = None, timeout: int = 20) -> list[Posting]:
+    """List all open US postings for one iCIMS (Jibe) tenant.
+
+    Descriptions arrive inline in the listing response, so each returned
+    `Posting` is fully populated -- no separate detail fetch is needed.
 
     Args:
         slug: Compound `tenant[:host]` slug (e.g. "hooli:careers.hooli.com").
@@ -90,28 +108,38 @@ def fetch(slug: str, *, company: str | None = None, timeout: int = 20) -> list[P
         timeout: Request timeout in seconds (default 20).
 
     Returns:
-        List of normalized Posting objects (US-only).
+        List of normalized Posting objects (US-only, non-empty description).
+        A page failure after at least one page has already succeeded stops
+        pagination but retains the postings already collected (FR-005/006).
 
     Raises:
         ValueError: If `slug` is malformed.
-        requests.HTTPError: On API request failure (contained by the caller
-            in fetch.py so one bad tenant does not abort the run).
+        requests.HTTPError: On a first-page request failure (contained by
+            the caller in fetch.py so one bad tenant does not abort the
+            run).
     """
     tenant, host = _split_slug(slug)
     company = company or tenant
     base = f"https://{host}"
 
-    cap_raw = os.environ.get("JOBAGENT_MAX_POSTINGS_PER_EMPLOYER")
-    cap = int(cap_raw) if cap_raw else None
-
     postings: list[Posting] = []
     page = 1
     while True:
-        resp = requests.get(
-            f"{base}/api/jobs", params={"page": page}, headers=HEADERS, timeout=timeout
-        )
-        resp.raise_for_status()
-        data = resp.json()
+        try:
+            resp = requests.get(
+                f"{base}/api/jobs", params={"page": page}, headers=HEADERS, timeout=timeout
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except (RequestException, ValueError):
+            if page == 1:
+                raise  # nothing has succeeded yet -> whole-source failure
+            print(
+                f"  ! icims/{slug} page {page} failed; keeping {len(postings)} prior postings",
+                file=sys.stderr,
+            )
+            break
+
         raw = data.get("jobs", [])
         if not raw:
             break
@@ -133,8 +161,6 @@ def fetch(slug: str, *, company: str | None = None, timeout: int = 20) -> list[P
             if not posting.description:
                 continue  # scorer needs description text -> exclude, don't score empty
             postings.append(posting)
-            if cap is not None and len(postings) >= cap:
-                return postings[:cap]  # cap reached -> stop, do not page on
 
         if page * PAGE_SIZE >= data.get("totalCount", 0):
             break
@@ -142,3 +168,22 @@ def fetch(slug: str, *, company: str | None = None, timeout: int = 20) -> list[P
         time.sleep(0.5)  # be polite
 
     return postings
+
+
+def fetch_description(posting: Posting, *, timeout: int = 20) -> str:
+    """Return the job description already inline on a posting stub.
+
+    iCIMS listing pages carry the full description, so this is a pure
+    pass-through with zero network calls; it exists only to satisfy the
+    two-phase contract shared with vendors that need a separate detail
+    fetch (`job_agent.resilient` short-circuits on the inline value).
+
+    Args:
+        posting: A stub returned by `list_postings`; its `description` is
+            already complete.
+        timeout: Unused; present for contract parity with other adapters.
+
+    Returns:
+        The posting's existing `description`.
+    """
+    return posting.description

@@ -1,8 +1,9 @@
-"""Red-phase tests for the Workday adapter (`workday.fetch`).
+"""Red-phase tests for the two-phase Workday adapter.
 
-Stub-based, no network: `workday.requests` and `workday.time.sleep` are
-monkeypatched per test. See docs/work/workday-adapter/plan.md for the
-approved design this pins down.
+`workday.fetch` is being split into `list_postings` (paginated listing only,
+zero detail GETs, no per-employer cap) and `fetch_description` (one detail
+GET per posting, called lazily downstream). Stub-based, no network:
+`workday.requests` and `workday.time.sleep` are monkeypatched per test.
 
 Fake-response interface (mirrors the real `requests.Response` surface the
 adapter is expected to use):
@@ -33,11 +34,14 @@ SLUG = f"{TENANT}:{SITE}:{HOST}"
 class _FakeResponse:
     """Stand-in for requests.Response with a canned JSON body and status."""
 
-    def __init__(self, payload: object, status_ok: bool = True) -> None:
+    def __init__(self, payload: object, status_ok: bool = True, json_raises: bool = False) -> None:
         self._payload = payload
         self._status_ok = status_ok
+        self._json_raises = json_raises
 
     def json(self) -> object:
+        if self._json_raises:
+            raise ValueError("simulated non-JSON body")
         return self._payload
 
     def raise_for_status(self) -> None:
@@ -121,14 +125,13 @@ def test_split_slug_rejects_malformed_slug() -> None:
         workday._split_slug("globex:Globex")
 
 
-# --- 3: URL shape --------------------------------------------------------
+# --- 3: URL shape ----------------------------------------------------------
 
 
-def test_fetch_builds_correct_cxs_urls_from_slug(fake_requests) -> None:
+def test_list_postings_builds_correct_jobs_post_url(fake_requests) -> None:
     fake_requests.post_responses = [_jobs_page(1, [_job_posting()])]
-    fake_requests.get_responses = [_detail_payload()]
 
-    workday.fetch(SLUG)
+    workday.list_postings(SLUG)
 
     post_calls = [c for c in fake_requests.calls if c["method"] == "post"]
     get_calls = [c for c in fake_requests.calls if c["method"] == "get"]
@@ -136,32 +139,29 @@ def test_fetch_builds_correct_cxs_urls_from_slug(fake_requests) -> None:
     assert post_calls[0]["url"] == (
         f"https://{TENANT}.{HOST}.myworkdayjobs.com/wday/cxs/{TENANT}/{SITE}/jobs"
     )
-    assert len(get_calls) == 1
-    assert get_calls[0]["url"] == (
-        f"https://{TENANT}.{HOST}.myworkdayjobs.com/wday/cxs/{TENANT}/{SITE}"
-        "/job/Remote/Engineer_R-1"
-    )
+    assert len(get_calls) == 0
 
 
-# --- 4-5: pagination ------------------------------------------------------
+# --- 4-5: pagination, zero detail GETs --------------------------------------
 
 
 def test_pagination_walks_offset_until_total_reached(fake_requests) -> None:
-    # total=45, limit=20 -> pages at offset 0, 20, 40 (3 POSTs); 45 jobs total
-    # so detail GETs == 45.
+    # total=45, limit=20 -> pages at offset 0, 20, 40 (3 POSTs). Listing must
+    # not issue any detail GETs at all.
     page1 = _jobs_page(45, [_job_posting(external_path=f"/job/{i}") for i in range(20)])
     page2 = _jobs_page(45, [_job_posting(external_path=f"/job/{i}") for i in range(20, 40)])
     page3 = _jobs_page(45, [_job_posting(external_path=f"/job/{i}") for i in range(40, 45)])
     fake_requests.post_responses = [page1, page2, page3]
-    fake_requests.get_responses = [_detail_payload() for _ in range(45)]
 
-    postings = workday.fetch(SLUG)
+    postings = workday.list_postings(SLUG)
 
     post_calls = [c for c in fake_requests.calls if c["method"] == "post"]
+    get_calls = [c for c in fake_requests.calls if c["method"] == "get"]
     assert len(post_calls) == 3
     offsets = [c["json"]["offset"] for c in post_calls]
     assert offsets == [0, 20, 40]
     assert len(postings) == 45
+    assert len(get_calls) == 0
 
 
 def test_pagination_stops_at_empty_page(fake_requests) -> None:
@@ -170,19 +170,22 @@ def test_pagination_stops_at_empty_page(fake_requests) -> None:
     page1 = _jobs_page(100, [_job_posting(external_path=f"/job/{i}") for i in range(20)])
     page2 = _jobs_page(100, [])
     fake_requests.post_responses = [page1, page2]
-    fake_requests.get_responses = [_detail_payload() for _ in range(20)]
 
-    postings = workday.fetch(SLUG)
+    postings = workday.list_postings(SLUG)
 
     post_calls = [c for c in fake_requests.calls if c["method"] == "post"]
+    get_calls = [c for c in fake_requests.calls if c["method"] == "get"]
     assert len(post_calls) == 2
     assert len(postings) == 20
+    assert len(get_calls) == 0
 
 
-# --- 6: field mapping through normalize() --------------------------------
+# --- 6: field mapping returns stubs (no detail call) ------------------------
 
 
-def test_detail_fetch_maps_through_normalize(fake_requests, monkeypatch, tmp_path: Path) -> None:
+def test_list_postings_returns_stubs_with_mapped_fields(
+    fake_requests, monkeypatch, tmp_path: Path
+) -> None:
     # No `company` kwarg supplied -> company falls back to tenant.
     monkeypatch.setenv("JOBAGENT_DATA_DIR", str(tmp_path))
 
@@ -199,44 +202,49 @@ def test_detail_fetch_maps_through_normalize(fake_requests, monkeypatch, tmp_pat
             ],
         )
     ]
-    fake_requests.get_responses = [_detail_payload("<p>Full job description.</p>")]
 
-    postings = workday.fetch(SLUG)
+    postings = workday.list_postings(SLUG)
 
     assert len(postings) == 1
     posting = postings[0]
     assert isinstance(posting, Posting)
     assert posting.source == "workday"
     assert posting.company == TENANT
-    assert posting.external_id  # present, non-empty
+    assert posting.external_id == "/job/Remote/Engineer_R-1"
     assert posting.title == "Software Engineer"
     assert posting.location == "Seattle, WA"
-    assert "Full job description." in posting.description
+    assert posting.description == ""
+    assert posting.url == (
+        f"https://{TENANT}.{HOST}.myworkdayjobs.com/wday/cxs/{TENANT}/{SITE}"
+        "/job/Remote/Engineer_R-1"
+    )
     assert posting.url.startswith("https://")
+    assert posting.url.endswith("/job/Remote/Engineer_R-1")
     assert posting.posted_at == "2026-06-01"
 
+    get_calls = [c for c in fake_requests.calls if c["method"] == "get"]
+    assert len(get_calls) == 0
 
-# --- 7-8: per-employer cap -----------------------------------------------
+
+# --- 7-8: per-employer cap REMOVED for listing ------------------------------
 
 
-def test_per_employer_cap_limits_results(fake_requests, monkeypatch) -> None:
-    # Cap = 5, advertised total = 45 (limit 20/page). The cap must bound
-    # round-trips: with a 20-per-page POST size, reaching 5 postings happens
-    # within the FIRST page, so only 1 jobs-POST and exactly 5 detail-GETs
-    # should occur -- not a full 20-job page worth of GETs.
+def test_per_employer_cap_env_var_is_ignored_by_list_postings(fake_requests, monkeypatch) -> None:
+    # A single page of 20 jobs, total=20. Even with the legacy cap env var
+    # set to 5, list_postings must return all 20 -- the cap no longer
+    # applies at the listing phase.
     monkeypatch.setenv("JOBAGENT_MAX_POSTINGS_PER_EMPLOYER", "5")
 
-    page1 = _jobs_page(45, [_job_posting(external_path=f"/job/{i}") for i in range(20)])
+    page1 = _jobs_page(20, [_job_posting(external_path=f"/job/{i}") for i in range(20)])
     fake_requests.post_responses = [page1]
-    fake_requests.get_responses = [_detail_payload() for _ in range(5)]
 
-    postings = workday.fetch(SLUG)
+    postings = workday.list_postings(SLUG)
 
-    assert len(postings) == 5
+    assert len(postings) == 20
     post_calls = [c for c in fake_requests.calls if c["method"] == "post"]
     get_calls = [c for c in fake_requests.calls if c["method"] == "get"]
     assert len(post_calls) == 1
-    assert len(get_calls) == 5
+    assert len(get_calls) == 0
 
 
 def test_cap_unset_returns_all(fake_requests, monkeypatch) -> None:
@@ -244,42 +252,70 @@ def test_cap_unset_returns_all(fake_requests, monkeypatch) -> None:
 
     page1 = _jobs_page(7, [_job_posting(external_path=f"/job/{i}") for i in range(7)])
     fake_requests.post_responses = [page1]
-    fake_requests.get_responses = [_detail_payload() for _ in range(7)]
 
-    postings = workday.fetch(SLUG)
+    postings = workday.list_postings(SLUG)
 
     assert len(postings) == 7
 
 
-# --- 9: politeness --------------------------------------------------------
+# --- 9: HTTP error propagation (listing) ------------------------------------
 
 
-def test_politeness_sleep_called(fake_requests, fake_sleep) -> None:
-    fake_requests.post_responses = [_jobs_page(1, [_job_posting()])]
-    fake_requests.get_responses = [_detail_payload()]
-
-    workday.fetch(SLUG)
-
-    assert len(fake_sleep) >= 1
-
-
-# --- 10: HTTP error propagation -------------------------------------------
-
-
-def test_fetch_raises_on_http_error_so_run_records_failure(fake_requests) -> None:
+def test_list_postings_raises_on_http_error_so_run_records_failure(fake_requests) -> None:
     fake_requests.post_responses = [_FakeResponse({}, status_ok=False)]
 
     with pytest.raises(real_requests.HTTPError):
-        workday.fetch(SLUG)
+        workday.list_postings(SLUG)
 
 
-# --- 11: US country facet -------------------------------------------------
+def test_list_postings_retains_earlier_pages_when_later_page_fails(fake_requests) -> None:
+    # Page 1 (offset 0) succeeds with 20 jobs; total=45 demands a further
+    # page at offset 20, but that second POST fails. The 20 already-fetched
+    # postings are not discarded: the earlier page survives and pagination
+    # simply stops at the failed page, matching the "partial source"
+    # tolerance in resilient.run_source (FR-005/006).
+    page1 = _jobs_page(45, [_job_posting(external_path=f"/job/{i}") for i in range(20)])
+    fake_requests.post_responses = [page1, _FakeResponse({}, status_ok=False)]
+
+    postings = workday.list_postings(SLUG)
+
+    post_calls = [c for c in fake_requests.calls if c["method"] == "post"]
+    get_calls = [c for c in fake_requests.calls if c["method"] == "get"]
+    assert len(postings) == 20
+    assert {p.external_id for p in postings} == {f"/job/{i}" for i in range(20)}
+    assert len(post_calls) == 2
+    assert len(get_calls) == 0
+
+
+def test_list_postings_retains_earlier_pages_when_later_page_returns_non_json(
+    fake_requests,
+) -> None:
+    # Page 1 (offset 0) succeeds with 20 jobs; total=45 demands a further
+    # page at offset 20, but that second POST returns a body that fails to
+    # parse as JSON (status is OK -- the failure is in resp.json(), a
+    # stand-in for a read timeout/non-JSON body per FR-005). The 20
+    # already-fetched postings are not discarded.
+    page1 = _jobs_page(45, [_job_posting(external_path=f"/job/{i}") for i in range(20)])
+    bad_page = _FakeResponse({}, status_ok=True, json_raises=True)
+    fake_requests.post_responses = [page1, bad_page]
+
+    postings = workday.list_postings(SLUG)
+
+    post_calls = [c for c in fake_requests.calls if c["method"] == "post"]
+    get_calls = [c for c in fake_requests.calls if c["method"] == "get"]
+    assert len(postings) == 20
+    assert {p.external_id for p in postings} == {f"/job/{i}" for i in range(20)}
+    assert len(post_calls) == 2
+    assert len(get_calls) == 0
+
+
+# --- 10: US country facet ---------------------------------------------------
 
 
 def test_jobs_post_body_carries_us_country_facet(fake_requests) -> None:
     fake_requests.post_responses = [_jobs_page(0, [])]
 
-    workday.fetch(SLUG)
+    workday.list_postings(SLUG)
 
     post_calls = [c for c in fake_requests.calls if c["method"] == "post"]
     body = post_calls[0]["json"]
@@ -288,15 +324,14 @@ def test_jobs_post_body_carries_us_country_facet(fake_requests) -> None:
     assert workday.USA_COUNTRY_WID in applied_facets[workday.USA_COUNTRY_FACET_KEY]
 
 
-# --- 12-13: company display-name resolution -------------------------------
+# --- 11-12: company display-name resolution ---------------------------------
 
 
 def test_company_comes_from_company_kwarg(fake_requests, monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("JOBAGENT_DATA_DIR", str(tmp_path))
     fake_requests.post_responses = [_jobs_page(1, [_job_posting()])]
-    fake_requests.get_responses = [_detail_payload()]
 
-    postings = workday.fetch(SLUG, company="Some Display Name")
+    postings = workday.list_postings(SLUG, company="Some Display Name")
 
     assert len(postings) == 1
     assert postings[0].company == "Some Display Name"
@@ -305,9 +340,80 @@ def test_company_comes_from_company_kwarg(fake_requests, monkeypatch, tmp_path: 
 def test_company_defaults_to_tenant_when_absent(fake_requests, monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("JOBAGENT_DATA_DIR", str(tmp_path))
     fake_requests.post_responses = [_jobs_page(1, [_job_posting()])]
-    fake_requests.get_responses = [_detail_payload()]
 
-    postings = workday.fetch(SLUG)
+    postings = workday.list_postings(SLUG)
 
     assert len(postings) == 1
     assert postings[0].company == TENANT
+
+
+# --- 13: fetch_description issues exactly one detail GET --------------------
+
+
+def test_fetch_description_issues_one_get_and_returns_description(fake_requests) -> None:
+    stub = Posting(
+        source="workday",
+        company=TENANT,
+        external_id="/job/Remote/Engineer_R-1",
+        title="Software Engineer",
+        location="Seattle, WA",
+        description="",
+        url=(
+            f"https://{TENANT}.{HOST}.myworkdayjobs.com/wday/cxs/{TENANT}/{SITE}"
+            "/job/Remote/Engineer_R-1"
+        ),
+        posted_at="2026-06-01",
+    )
+    fake_requests.get_responses = [_detail_payload("Full job description.")]
+
+    description = workday.fetch_description(stub)
+
+    get_calls = [c for c in fake_requests.calls if c["method"] == "get"]
+    assert len(get_calls) == 1
+    assert get_calls[0]["url"] == (
+        f"https://{TENANT}.{HOST}.myworkdayjobs.com/wday/cxs/{TENANT}/{SITE}"
+        "/job/Remote/Engineer_R-1"
+    )
+    assert "Full job description." in description
+
+
+def test_fetch_description_uses_listing_stub_directly(fake_requests) -> None:
+    # Build the stub via list_postings itself (no detail GET consumed yet),
+    # then fetch its description as a separate call.
+    fake_requests.post_responses = [_jobs_page(1, [_job_posting()])]
+    [stub] = workday.list_postings(SLUG)
+
+    fake_requests.get_responses = [_detail_payload("Detail body text.")]
+    description = workday.fetch_description(stub)
+
+    get_calls = [c for c in fake_requests.calls if c["method"] == "get"]
+    assert len(get_calls) == 1
+    assert get_calls[0]["url"] == (
+        f"https://{TENANT}.{HOST}.myworkdayjobs.com/wday/cxs/{TENANT}/{SITE}"
+        "/job/Remote/Engineer_R-1"
+    )
+    assert "Detail body text." in description
+
+
+# --- 14: politeness sleep happens during fetch_description ------------------
+
+
+def test_fetch_description_politeness_sleep_called(fake_requests, fake_sleep) -> None:
+    stub = Posting(
+        source="workday",
+        company=TENANT,
+        external_id="/job/Remote/Engineer_R-1",
+        title="Software Engineer",
+        location="Seattle, WA",
+        description="",
+        url=(
+            f"https://{TENANT}.{HOST}.myworkdayjobs.com/wday/cxs/{TENANT}/{SITE}"
+            "/job/Remote/Engineer_R-1"
+        ),
+        posted_at="2026-06-01",
+    )
+    fake_requests.get_responses = [_detail_payload()]
+
+    workday.fetch_description(stub)
+
+    assert len(fake_sleep) >= 1

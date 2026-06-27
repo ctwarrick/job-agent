@@ -47,25 +47,30 @@ def _patch_stages(
     score_ok: bool = True,
     digest_returns: bool = True,
     fetch_failures: list[dict] | None = None,
+    partial_sources: list[dict] | None = None,
     score_result: dict | None = None,
     captured: dict | None = None,
 ) -> list[str]:
-    """Patch the three pipeline stages with the US3a contracts:
+    """Patch the three pipeline stages with the current contracts:
 
-    fetch.main() -> list of {source, company_slug, error} (empty when healthy);
+    fetch.main() -> (failed_sources, partial_sources) tuple, each a list of
+    dicts (both empty when healthy);
     score.main() -> {scored, remaining, cap_reason};
-    digest.main(failed_sources=, scoring=) -> bool.
+    digest.main(failed_sources=, scoring=, partial_sources=) -> bool.
 
     Defaults reproduce a clean, fully-scored success. When `captured` is given,
     the kwargs digest.main() received are recorded into it.
     """
     calls = []
 
-    def fake_fetch() -> list[dict]:
+    def fake_fetch() -> tuple[list[dict], list[dict]]:
         calls.append("fetch")
         if not fetch_ok:
             raise SystemExit("fetch failed")
-        return fetch_failures if fetch_failures is not None else []
+        return (
+            fetch_failures if fetch_failures is not None else [],
+            partial_sources if partial_sources is not None else [],
+        )
 
     def fake_score() -> dict:
         calls.append("score")
@@ -73,11 +78,12 @@ def _patch_stages(
             raise SystemExit("score failed")
         return score_result if score_result is not None else dict(_CLEAN_SCORE)
 
-    def fake_digest(failed_sources: list[dict] | None = None, scoring: dict | None = None) -> bool:
+    def fake_digest(failed_sources=None, scoring=None, partial_sources=None) -> bool:
         calls.append("digest")
         if captured is not None:
             captured["failed_sources"] = failed_sources
             captured["scoring"] = scoring
+            captured["partial_sources"] = partial_sources
         return digest_returns
 
     monkeypatch.setattr(main, "fetch", type("M", (), {"main": staticmethod(fake_fetch)}))
@@ -312,12 +318,20 @@ def test_non_systemexit_failure_on_third_attempt_prints_run_failed_final(
     def fake_score() -> None:
         raise RuntimeError("kaboom")
 
-    monkeypatch.setattr(main, "fetch", type("M", (), {"main": staticmethod(lambda: [])}))
+    monkeypatch.setattr(main, "fetch", type("M", (), {"main": staticmethod(lambda: ([], []))}))
     monkeypatch.setattr(main, "score", type("M", (), {"main": staticmethod(fake_score)}))
     monkeypatch.setattr(
         main,
         "digest",
-        type("M", (), {"main": staticmethod(lambda failed_sources=None, scoring=None: True)}),
+        type(
+            "M",
+            (),
+            {
+                "main": staticmethod(
+                    lambda failed_sources=None, scoring=None, partial_sources=None: True
+                )
+            },
+        ),
     )
 
     with pytest.raises(RuntimeError):
@@ -411,6 +425,57 @@ def test_degradation_context_passed_to_digest(tmp_path: Path, monkeypatch) -> No
 
     assert captured["failed_sources"] == failures
     assert captured["scoring"] == scoring
+
+
+def test_partial_source_sets_degraded_outcome_and_prints_run_success(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """A partially-fetched source (backstop/skip/persistent) -> outcome
+    'degraded', but the digest was delivered so RUN_SUCCESS still prints
+    (FR-014)."""
+    db = _setup_db(tmp_path, monkeypatch)
+    partials = [
+        {
+            "source": "workday",
+            "company_slug": "globex:Globex:wd5",
+            "new": 5,
+            "skipped": 2,
+            "truncated": True,
+            "persistent": False,
+        }
+    ]
+    _patch_stages(monkeypatch, partial_sources=partials)
+
+    _run_main_allow_exit(monkeypatch)
+
+    row = _latest_run(db)
+    assert row["outcome"] == "degraded"
+    assert "partial" in (row["detail"] or "").lower()
+
+    out = capsys.readouterr().out
+    assert f"RUN_SUCCESS digest_date={store.digest_date()}" in out
+
+
+def test_partial_sources_forwarded_to_digest(tmp_path: Path, monkeypatch) -> None:
+    """main.py forwards fetch's partial-source list to digest.main() so the
+    email can render the degraded category (FR-014)."""
+    _setup_db(tmp_path, monkeypatch)
+    partials = [
+        {
+            "source": "workday",
+            "company_slug": "globex:Globex:wd5",
+            "new": 0,
+            "skipped": 0,
+            "truncated": True,
+            "persistent": True,
+        }
+    ]
+    captured: dict = {}
+    _patch_stages(monkeypatch, partial_sources=partials, captured=captured)
+
+    _run_main_allow_exit(monkeypatch)
+
+    assert captured["partial_sources"] == partials
 
 
 # --- retention purge stage (FR-015) -----------------------------------------

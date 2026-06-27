@@ -12,7 +12,10 @@
 #   host     (workday: required wd5/wd1; icims: optional custom domain)
 #   name     (optional)  display company name (see note)
 #   enabled  (optional, default true)  set false to disable without deleting
-#   max_per_employer (optional, int)  reserved; not yet wired
+#   max_per_employer (optional, int)  deprecated; accepted but ignored
+#                                     (per-source fetch is now bounded by the
+#                                     JOBAGENT_MAX_DETAIL_PER_SOURCE /
+#                                     JOBAGENT_FETCH_DEADLINE_SECONDS backstop)
 #
 # Note: `name` is the authoritative digest company. The loader resolves it
 # (name if set, else the slug for greenhouse/lever or the tenant for

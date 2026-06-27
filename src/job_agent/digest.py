@@ -159,7 +159,11 @@ def _render_html(groups: dict[str, list[dict]]) -> str:
     return "".join(parts)
 
 
-def _degradation_facts(failed_sources: list[dict] | None, scoring: dict | None) -> dict | None:
+def _degradation_facts(
+    failed_sources: list[dict] | None,
+    scoring: dict | None,
+    partial_sources: list[dict] | None = None,
+) -> dict | None:
     """Select the structured degradation facts shared by the email notice and
     the run-row detail, or None when the run was clean.
 
@@ -170,22 +174,39 @@ def _degradation_facts(failed_sources: list[dict] | None, scoring: dict | None) 
     Args:
         failed_sources: List of {source, company_slug, error} dicts, or None.
         scoring: The score stage's {scored, remaining, cap_reason}, or None.
+        partial_sources: List of partially-fetched source dicts
+            {source, company_slug, new, skipped, truncated, persistent}, or None
+            (FR-014).
 
     Returns:
         Dict with source_count, names (["source/company_slug", ...]), remaining,
-        cap_reason; or None when nothing degraded.
+        cap_reason, partial_count, and partials (one normalized dict per partial
+        source); or None when nothing degraded.
     """
     source_count = len(failed_sources) if failed_sources else 0
     names = [f"{f['source']}/{f['company_slug']}" for f in (failed_sources or [])]
     remaining = scoring.get("remaining", 0) if scoring else 0
     cap_reason = scoring.get("cap_reason") if scoring else None
-    if not source_count and remaining <= 0:
+    partials = [
+        {
+            "name": f"{p['source']}/{p['company_slug']}",
+            "new": p.get("new", 0),
+            "skipped": p.get("skipped", 0),
+            "truncated": p.get("truncated", False),
+            "persistent": p.get("persistent", False),
+        }
+        for p in (partial_sources or [])
+    ]
+    partial_count = len(partials)
+    if not source_count and remaining <= 0 and not partial_count:
         return None
     return {
         "source_count": source_count,
         "names": names,
         "remaining": remaining,
         "cap_reason": cap_reason,
+        "partial_count": partial_count,
+        "partials": partials,
     }
 
 
@@ -195,6 +216,11 @@ def _degradation_messages(facts: dict) -> list[str]:
     The sentences are identical between the plain-text and HTML notices; the
     renderers differ only in escaping and wrapping. Naming each source is
     permitted (FR-007); the raw adapter error is never included (A2/FR-007).
+
+    A partial source (per-item skips or backstop truncation) reads as
+    "partially fetched ... queued for the next run"; one stuck past the
+    staleness bound reads as a persistent "behind" degradation needing action
+    (FR-014/FR-015) -- both distinct from a wholly "unreachable" failed source.
 
     Args:
         facts: The dict from `_degradation_facts`.
@@ -218,27 +244,47 @@ def _degradation_messages(facts: dict) -> list[str]:
             f"{remaining} posting(s) left unscored this run and "
             f"queued for the next run{suffix}."
         )
+    for p in facts.get("partials", []):
+        if p["persistent"]:
+            messages.append(
+                f"{p['name']} has stayed behind for longer than the staleness "
+                f"bound; raise the budget, tighten the filter, or drop it."
+            )
+        else:
+            messages.append(
+                f"{p['name']} partially fetched: {p['new']} stored, "
+                f"{p['skipped']} skipped, the rest queued for the next run."
+            )
     return messages
 
 
-def _degradation_text(failed_sources: list[dict] | None, scoring: dict | None) -> str:
+def _degradation_text(
+    failed_sources: list[dict] | None,
+    scoring: dict | None,
+    partial_sources: list[dict] | None = None,
+) -> str:
     """Plain-text degraded-run notice, or "" when the run was clean.
 
     Args:
         failed_sources: List of {source, company_slug, error} dicts, or None.
         scoring: The score stage's {scored, remaining, cap_reason}, or None.
+        partial_sources: Partially-fetched source dicts, or None (FR-014).
 
     Returns:
         A text block ending in a newline, or "" when there is nothing to report.
     """
-    facts = _degradation_facts(failed_sources, scoring)
+    facts = _degradation_facts(failed_sources, scoring, partial_sources)
     if facts is None:
         return ""
     lines = [f"  • {m}" for m in _degradation_messages(facts)]
     return "\n".join(["Degraded run — partial results", "-" * 40, *lines, ""]) + "\n"
 
 
-def _degradation_html(failed_sources: list[dict] | None, scoring: dict | None) -> str:
+def _degradation_html(
+    failed_sources: list[dict] | None,
+    scoring: dict | None,
+    partial_sources: list[dict] | None = None,
+) -> str:
     """HTML degraded-run notice, or "" when the run was clean.
 
     Escapes each whole message (covers source/company_slug), so a slug with
@@ -247,11 +293,12 @@ def _degradation_html(failed_sources: list[dict] | None, scoring: dict | None) -
     Args:
         failed_sources: List of {source, company_slug, error} dicts, or None.
         scoring: The score stage's {scored, remaining, cap_reason}, or None.
+        partial_sources: Partially-fetched source dicts, or None (FR-014).
 
     Returns:
         An HTML block, or "" when there is nothing to report.
     """
-    facts = _degradation_facts(failed_sources, scoring)
+    facts = _degradation_facts(failed_sources, scoring, partial_sources)
     if facts is None:
         return ""
     lis = "".join(f"<li>{escape(m)}</li>" for m in _degradation_messages(facts))
@@ -317,21 +364,28 @@ def _mark_sent(fingerprints: list[str], path: str | None = None) -> None:
         )
 
 
-def main(failed_sources: list[dict] | None = None, scoring: dict | None = None) -> bool:
+def main(
+    failed_sources: list[dict] | None = None,
+    scoring: dict | None = None,
+    partial_sources: list[dict] | None = None,
+) -> bool:
     """Send the digest (or a no-matches notice) and report confirmed-send status.
 
     When the orchestrator passes degradation context, a notice naming the
-    failed sources (FR-005) and any scoring backlog (FR-020) is prepended to
-    both the text and HTML bodies, including on an otherwise empty day — so the
-    degradation is visible by morning coffee even when no postings qualified.
-    With the default (no) arguments, behavior is unchanged, preserving the
-    standalone `jobagent-digest` entry point.
+    failed sources (FR-005), any partially-fetched sources (FR-014), and any
+    scoring backlog (FR-020) is prepended to both the text and HTML bodies,
+    including on an otherwise empty day — so the degradation is visible by
+    morning coffee even when no postings qualified. With the default (no)
+    arguments, behavior is unchanged, preserving the standalone
+    `jobagent-digest` entry point.
 
     Args:
         failed_sources: Optional list of {source, company_slug, error} dicts
             from fetch.main().
         scoring: Optional {scored, remaining, cap_reason} signal from
             score.main().
+        partial_sources: Optional list of partially-fetched source dicts from
+            fetch.main() (skips / backstop truncation / persistent staleness).
 
     Returns:
         True only once `_send` has returned without raising — callers (main.py)
@@ -339,8 +393,8 @@ def main(failed_sources: list[dict] | None = None, scoring: dict | None = None) 
         confirmation (FR-004, data-model.md "Validation rules").
     """
     rows = _fetch_digest()
-    deg_text = _degradation_text(failed_sources, scoring)
-    deg_html = _degradation_html(failed_sources, scoring)
+    deg_text = _degradation_text(failed_sources, scoring, partial_sources)
+    deg_html = _degradation_html(failed_sources, scoring, partial_sources)
 
     if not rows:
         subject = "Job digest — no new matches"

@@ -69,6 +69,15 @@ CREATE TABLE IF NOT EXISTS runs (
     failed_sources TEXT,  -- JSON list of {source, company_slug, error}
     detail        TEXT
 );
+
+-- Per-source forward-progress watermark for resilient fetch (data-model.md
+-- "source_progress table"); additive, survives postings purges.
+CREATE TABLE IF NOT EXISTS source_progress (
+    source            TEXT NOT NULL,
+    company           TEXT NOT NULL,
+    last_converged_at TEXT,
+    PRIMARY KEY (source, company)
+);
 """
 
 
@@ -196,7 +205,8 @@ def upsert_postings(postings: list[Posting] | tuple[Posting, ...], path: str | N
         path: Optional path to jobs.db; defaults to data_path("jobs.db").
 
     Returns:
-        Count of total_changes in SQLite (rows affected).
+        Count of newly inserted postings (FR-011); excludes the companion
+        applications-row inserts seeded below.
     """
     rows = [p.to_row() for p in postings]
     if not rows:
@@ -218,13 +228,98 @@ def upsert_postings(postings: list[Posting] | tuple[Posting, ...], path: str | N
     with connect(path) as conn:
         before = conn.total_changes
         conn.executemany(sql, [[r[c] for c in cols] for r in rows])
+        after_postings = conn.total_changes
         # also seed an applications row in 'new' state for anything brand new
         conn.executemany(
             "INSERT OR IGNORE INTO applications (fingerprint, status, updated_at) "
             "VALUES (?, 'new', datetime('now'))",
             [[r["fingerprint"]] for r in rows],
         )
-        return conn.total_changes - before
+        return after_postings - before
+
+
+def existing_external_ids(source: str, company: str, path: str | None = None) -> set[str]:
+    """Fetch the external_ids already stored for a source/company pair.
+
+    The description-independent identity resilient fetch uses to skip
+    already-described survivors on later runs (FR-015 forward progress;
+    contracts/resilient-fetch.md §3).
+
+    Args:
+        source: Adapter/vendor name (e.g. "greenhouse").
+        company: Registry company slug.
+        path: Optional path to jobs.db; defaults to data_path("jobs.db").
+
+    Returns:
+        Set of external_id strings already stored for this source/company.
+    """
+    with connect(path) as conn:
+        rows = conn.execute(
+            "SELECT external_id FROM postings WHERE source=? AND company=?",
+            (source, company),
+        ).fetchall()
+        return {r["external_id"] for r in rows}
+
+
+def get_last_converged(source: str, company: str, path: str | None = None) -> str | None:
+    """Fetch the last-converged timestamp for a source/company pair.
+
+    Args:
+        source: Adapter/vendor name (e.g. "greenhouse").
+        company: Registry company slug.
+        path: Optional path to jobs.db; defaults to data_path("jobs.db").
+
+    Returns:
+        The stored ISO-8601 UTC timestamp, or None if there is no row yet.
+    """
+    with connect(path) as conn:
+        row = conn.execute(
+            "SELECT last_converged_at FROM source_progress WHERE source=? AND company=?",
+            (source, company),
+        ).fetchone()
+        return row["last_converged_at"] if row else None
+
+
+def mark_converged(source: str, company: str, when: str, path: str | None = None) -> None:
+    """Upsert the last-converged timestamp for a source/company pair.
+
+    Called when a run finishes a source with no survivors left to describe
+    (data-model.md "Convergence / staleness lifecycle"); always overwrites.
+
+    Args:
+        source: Adapter/vendor name (e.g. "greenhouse").
+        company: Registry company slug.
+        when: ISO-8601 UTC timestamp to store.
+        path: Optional path to jobs.db; defaults to data_path("jobs.db").
+    """
+    with connect(path) as conn:
+        conn.execute(
+            "INSERT INTO source_progress (source, company, last_converged_at) "
+            "VALUES (?, ?, ?) ON CONFLICT(source, company) DO UPDATE SET "
+            "last_converged_at=excluded.last_converged_at",
+            (source, company, when),
+        )
+
+
+def seed_source(source: str, company: str, when: str, path: str | None = None) -> None:
+    """Insert a last-converged timestamp only if no row exists yet.
+
+    Called on first sighting of a source so its grace window starts now
+    rather than at epoch (data-model.md "Convergence / staleness
+    lifecycle"); never overwrites an existing row.
+
+    Args:
+        source: Adapter/vendor name (e.g. "greenhouse").
+        company: Registry company slug.
+        when: ISO-8601 UTC timestamp to store if absent.
+        path: Optional path to jobs.db; defaults to data_path("jobs.db").
+    """
+    with connect(path) as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO source_progress (source, company, last_converged_at) "
+            "VALUES (?, ?, ?)",
+            (source, company, when),
+        )
 
 
 def unscored(path: str | None = None) -> list[sqlite3.Row]:

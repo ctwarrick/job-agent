@@ -68,9 +68,15 @@ Optional env vars:
   used for the cost cap and the `SCORE_SUMMARY` estimate (defaults `3`, `15`,
   `3.75`, `0.30` — the `claude-sonnet-4-6` rates). Override when the model or
   pricing changes.
-- `JOBAGENT_MAX_POSTINGS_PER_EMPLOYER` — optional cap on postings fetched per
-  tenant by the Workday, iCIMS, and Talemetry adapters (some boards report
-  100+ open postings for a single tenant).
+- `JOBAGENT_MAX_DETAIL_PER_SOURCE` / `JOBAGENT_FETCH_DEADLINE_SECONDS` —
+  per-source fetch backstop for the two-phase adapters (Workday, iCIMS,
+  Talemetry): caps the number of expensive per-posting description retrievals
+  (default `150`) and the wall-clock seconds (default `300`) one source may
+  spend per run. When a bound is hit the source is reported partial/degraded in
+  the digest and the rest of its backlog drains on later runs, rather than the
+  run exhausting its execution window.
+- `JOBAGENT_STALENESS_BOUND_DAYS` — days a source may stay truncated before it
+  is surfaced as a persistent degradation in the digest (default `7`).
 - `JOBAGENT_FORCE` — set to `1` to re-run a digest_date that already
   succeeded today.
 - `DIGEST_MIN_SKILLS` / `DIGEST_MAX_RISK` — digest thresholds (defaults `6`

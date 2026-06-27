@@ -282,6 +282,93 @@ def test_no_degradation_notice_when_healthy() -> None:
     assert _degradation_html([], clean) == ""
 
 
+# --- partial / degraded source category (FR-014) ----------------------------
+
+_PARTIAL_SOURCES = [
+    {
+        "source": "workday",
+        "company_slug": "globex:Globex:wd5",
+        "new": 5,
+        "skipped": 2,
+        "truncated": True,
+        "persistent": False,
+    }
+]
+_PERSISTENT_PARTIAL = [
+    {
+        "source": "workday",
+        "company_slug": "bigco:Bigco:wd1",
+        "new": 0,
+        "skipped": 0,
+        "truncated": True,
+        "persistent": True,
+    }
+]
+
+
+def test_partial_source_renders_distinct_from_failed_text() -> None:
+    """A partially-fetched source is named and described as partial, NOT as an
+    unreachable/failed source (FR-014: a distinct category)."""
+    text = _degradation_text(None, None, _PARTIAL_SOURCES)
+    assert "workday" in text and "globex:Globex:wd5" in text
+    assert "partial" in text.lower()
+    assert "unreachable" not in text.lower()
+
+
+def test_partial_source_renders_in_html() -> None:
+    html = _degradation_html(None, None, _PARTIAL_SOURCES)
+    assert "workday" in html and "globex:Globex:wd5" in html
+    assert "partial" in html.lower()
+
+
+def test_persistent_partial_uses_distinct_wording() -> None:
+    """A source stuck past the staleness bound reads as a persistent/behind
+    degradation, distinct from an ordinary one-run truncation (FR-015)."""
+    text = _degradation_text(None, None, _PERSISTENT_PARTIAL)
+    assert "bigco:Bigco:wd1" in text
+    assert "behind" in text.lower()
+
+
+def test_failed_and_partial_both_rendered() -> None:
+    text = _degradation_text(_FAILED_SOURCES, None, _PARTIAL_SOURCES)
+    assert "unreachable" in text.lower()  # failed category
+    assert "partial" in text.lower()  # partial category
+    assert "globex:Globex:wd5" in text
+
+
+def test_no_notice_when_no_failed_no_partial_no_backlog() -> None:
+    clean = {"scored": 3, "remaining": 0, "cap_reason": None}
+    assert _degradation_text(None, clean, None) == ""
+    assert _degradation_text([], clean, []) == ""
+    assert _degradation_html(None, clean, []) == ""
+
+
+def test_main_includes_partial_notice_in_body(tmp_path: Path, monkeypatch) -> None:
+    """FR-014: the partial/degraded category rides along in the delivered
+    digest body."""
+    db = tmp_path / "jobs.db"
+    from job_agent import store
+
+    store.init(str(db))
+    monkeypatch.chdir(tmp_path)
+    _set_smtp_env(monkeypatch)
+
+    sent = {}
+
+    def fake_send(subject: str, text: str, html: str) -> None:
+        sent["text"] = text
+        sent["html"] = html
+
+    monkeypatch.setattr(digest, "_send", fake_send)
+
+    result = digest.main(partial_sources=_PARTIAL_SOURCES)
+
+    assert result is True
+    assert "globex:Globex:wd5" in sent["text"]
+    assert "partial" in sent["text"].lower()
+    assert "globex:Globex:wd5" in sent["html"]
+
+
 def test_main_includes_notice_in_body_even_with_no_matches(tmp_path: Path, monkeypatch) -> None:
     """FR-005/FR-020: the degradation notice rides along in the delivered
     digest, including on an otherwise empty (no-matches) day."""

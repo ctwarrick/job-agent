@@ -59,24 +59,32 @@ from job_agent import digest, fetch, score, store
 FINAL_ATTEMPT = 3
 
 
-def _degradation_summary(failed_sources: list[dict], scoring: dict) -> str | None:
+def _degradation_summary(
+    failed_sources: list[dict], scoring: dict, partial_sources: list[dict] | None = None
+) -> str | None:
     """Build the run row's human-readable `detail` for a degraded run.
 
     Args:
         failed_sources: Fetch failure records ({source, company_slug, error}).
         scoring: The score stage's {scored, remaining, cap_reason} signal.
+        partial_sources: Partially-fetched source records (skips / backstop
+            truncation / persistent staleness), or None.
 
     Returns:
-        A summary like "2 sources failed; 919 unscored (cap=cost)", or None
-        when the run was clean (no failed sources, nothing left unscored).
+        A summary like "2 sources failed; 1 source partial; 919 unscored
+        (cap=cost)", or None when the run was clean (no failed/partial sources,
+        nothing left unscored).
     """
-    facts = digest._degradation_facts(failed_sources, scoring)
+    facts = digest._degradation_facts(failed_sources, scoring, partial_sources)
     if facts is None:
         return None
     parts = []
     n = facts["source_count"]
     if n:
         parts.append(f"{n} source{'s' if n != 1 else ''} failed")
+    p = facts.get("partial_count", 0)
+    if p:
+        parts.append(f"{p} source{'s' if p != 1 else ''} partial")
     remaining = facts["remaining"]
     if remaining > 0:
         cap = facts["cap_reason"]
@@ -105,11 +113,13 @@ def main() -> None:
         ]
 
     try:
-        failed_sources = fetch.main()  # pull + store; returns per-source failures
+        failed_sources, partial_sources = fetch.main()  # pull + store; per-source health
         scoring = score.main()  # LLM-score the unscored ones; returns degradation signal
         # email high-fit, low-risk, not-yet-sent postings (or notice), with any
         # degradation surfaced in the body
-        sent = digest.main(failed_sources=failed_sources, scoring=scoring)
+        sent = digest.main(
+            failed_sources=failed_sources, scoring=scoring, partial_sources=partial_sources
+        )
     except SystemExit as e:
         store.finish_run(
             run_id,
@@ -147,12 +157,12 @@ def main() -> None:
     # source or an unscored backlog is non-fatal degradation (FR-005/FR-020):
     # the digest was delivered, so the day is done (startup_decision treats
     # "degraded" like "success") and RUN_SUCCESS still prints.
-    degraded = bool(failed_sources) or scoring["remaining"] > 0
+    degraded = bool(failed_sources) or bool(partial_sources) or scoring["remaining"] > 0
     store.finish_run(
         run_id,
         outcome="degraded" if degraded else "success",
         failed_sources=failed_sources or None,
-        detail=_degradation_summary(failed_sources, scoring),
+        detail=_degradation_summary(failed_sources, scoring, partial_sources),
     )
 
     # Retention purge (FR-015): post-send housekeeping. It runs only after the

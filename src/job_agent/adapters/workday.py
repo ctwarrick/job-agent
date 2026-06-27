@@ -4,15 +4,19 @@ Workday CXS (Career Site eXperience Service) is reached at
     https://{host}.myworkdayjobs.com/wday/cxs/{tenant}/{site}/jobs
 
 A single compound slug `tenant:site:host` (e.g. "globex:Globex:wd5")
-keeps the `fetch(slug, *, company=...) -> list[Posting]` adapter contract
-unchanged; this module splits the slug internally.
+keeps the adapter scoped per tenant/site; this module splits the slug
+internally.
 
-Two round-trips per posting:
-  1. `POST .../wday/cxs/{tenant}/{site}/jobs` (paginated via limit/offset on
-     a `total` the API reports) returns title/externalPath/locationsText/
-     postedOn for a page of jobs, scoped to a US country facet.
-  2. `GET .../wday/cxs/{tenant}/{site}{externalPath}` returns the full
-     per-job description.
+Two-phase contract (see `job_agent.resilient`, which calls these lazily so
+filtering happens before any detail fetch is paid for):
+  1. `list_postings(slug, *, company=...) -> list[Posting]` walks
+     `POST .../wday/cxs/{tenant}/{site}/jobs` (paginated via limit/offset on
+     a `total` the API reports), returning title/externalPath/
+     locationsText/postedOn stubs scoped to a US country facet, with an
+     empty `description` and zero detail GETs.
+  2. `fetch_description(posting, ...) -> str` issues one
+     `GET .../wday/cxs/{tenant}/{site}{externalPath}` for a single stub
+     and returns its full job description.
 
 The display company name is the caller-supplied `company` kwarg (resolved
 upstream from `registry.toml`); it falls back to the tenant slug itself
@@ -25,10 +29,11 @@ must never be empty.
 
 from __future__ import annotations
 
-import os
+import sys
 import time
 
 import requests
+from requests import RequestException
 
 from ..schema import Posting, normalize
 
@@ -63,8 +68,11 @@ def _split_slug(slug: str) -> tuple[str, str, str]:
     return tenant, site, host
 
 
-def fetch(slug: str, *, company: str | None = None, timeout: int = 20) -> list[Posting]:
-    """Fetch all open US postings for one Workday tenant/site.
+def list_postings(slug: str, *, company: str | None = None, timeout: int = 20) -> list[Posting]:
+    """List all open US posting stubs for one Workday tenant/site.
+
+    Issues zero detail GETs; `description` is left empty for the caller to
+    fill in lazily via `fetch_description`.
 
     Args:
         slug: Compound `tenant:site:host` slug (e.g.
@@ -74,7 +82,7 @@ def fetch(slug: str, *, company: str | None = None, timeout: int = 20) -> list[P
         timeout: Request timeout in seconds (default 20).
 
     Returns:
-        List of normalized Posting objects.
+        List of normalized Posting stubs with empty `description`.
 
     Raises:
         ValueError: If `slug` is malformed.
@@ -84,9 +92,6 @@ def fetch(slug: str, *, company: str | None = None, timeout: int = 20) -> list[P
     company = company or tenant
     base = f"https://{tenant}.{host}.myworkdayjobs.com/wday/cxs/{tenant}/{site}"
 
-    cap_raw = os.environ.get("JOBAGENT_MAX_POSTINGS_PER_EMPLOYER")
-    cap = int(cap_raw) if cap_raw else None
-
     raw_jobs: list[dict] = []
     offset = 0
     while True:
@@ -95,29 +100,31 @@ def fetch(slug: str, *, company: str | None = None, timeout: int = 20) -> list[P
             "limit": PAGE_LIMIT,
             "appliedFacets": {USA_COUNTRY_FACET_KEY: [USA_COUNTRY_WID]},
         }
-        resp = requests.post(f"{base}/jobs", json=body, headers=HEADERS, timeout=timeout)
-        resp.raise_for_status()
-        data = resp.json()
+        try:
+            resp = requests.post(f"{base}/jobs", json=body, headers=HEADERS, timeout=timeout)
+            resp.raise_for_status()
+            data = resp.json()
+        except (RequestException, ValueError):
+            if not raw_jobs:
+                raise  # nothing has succeeded yet -> whole-source failure
+            print(
+                f"  ! workday/{slug} offset {offset} failed; "
+                f"keeping {len(raw_jobs)} prior postings",
+                file=sys.stderr,
+            )
+            break
+
         page = data.get("jobPostings", [])
         if not page:
             break
         raw_jobs.extend(page)
-        if cap is not None and len(raw_jobs) >= cap:
-            break
         offset += PAGE_LIMIT
         if offset >= data.get("total", 0):
             break
 
-    if cap is not None:
-        raw_jobs = raw_jobs[:cap]
-
     postings: list[Posting] = []
     for job in raw_jobs:
         external_path = job.get("externalPath", "")
-        detail_resp = requests.get(f"{base}{external_path}", headers=HEADERS, timeout=timeout)
-        detail_resp.raise_for_status()
-        detail = detail_resp.json()
-        description = detail.get("jobPostingInfo", {}).get("jobDescription", "")
         postings.append(
             normalize(
                 source="workday",
@@ -125,11 +132,31 @@ def fetch(slug: str, *, company: str | None = None, timeout: int = 20) -> list[P
                 external_id=external_path,
                 title=job.get("title", ""),
                 location=job.get("locationsText", ""),
-                description=description,
+                description="",
                 url=f"{base}{external_path}",
                 posted_at=job.get("postedOn"),
             )
         )
-        time.sleep(0.5)  # be polite
 
     return postings
+
+
+def fetch_description(posting: Posting, *, timeout: int = 20) -> str:
+    """Fetch the full job description for one posting stub.
+
+    Args:
+        posting: A stub returned by `list_postings`; its `url` is the
+            detail endpoint.
+        timeout: Request timeout in seconds (default 20).
+
+    Returns:
+        The full job description text (empty string if absent).
+
+    Raises:
+        requests.HTTPError: On API request failure.
+    """
+    resp = requests.get(posting.url, headers=HEADERS, timeout=timeout)
+    resp.raise_for_status()
+    detail = resp.json()
+    time.sleep(0.5)  # be polite
+    return detail.get("jobPostingInfo", {}).get("jobDescription", "")

@@ -8,8 +8,16 @@ that URL is the posting's stable `external_id` (FR-004) and the basis for the
 canonical URL.
 
 Registry shape: `vendor = "talemetry"` plus a `host` field. The reconstructed
-slug passed here is the host unchanged (no compound encoding), so the
-`fetch(slug, *, company=...) -> list[Posting]` contract is unchanged.
+slug passed here is the host unchanged (no compound encoding).
+
+Two-phase contract (see `job_agent.resilient`, which calls these lazily so
+filtering happens before any detail fetch is paid for):
+  1. `list_postings(slug, *, company=...) -> list[Posting]` paginates
+     `GET https://{host}/jobs/` (page-numbered), returning title/location/
+     posted_at stubs scoped to a US keep-if-any filter, with an empty
+     `description` and zero detail GETs.
+  2. `fetch_description(posting, ...) -> str` issues one `GET` against the
+     stub's detail URL and returns its full job description.
 
 The display company name is the caller-supplied `company` kwarg (resolved
 upstream from `registry.toml`); it falls back to the `host` when absent, since
@@ -36,17 +44,17 @@ non-gated feed); see specs/005-talemetry-adapter/tasks.md T017.
 
 from __future__ import annotations
 
-import os
 import re
 import sys
 import time
 
 import requests
 from bs4 import BeautifulSoup
+from requests import RequestException
 
 from ..schema import Posting, normalize
 
-__all__ = ["fetch"]
+__all__ = ["list_postings", "fetch_description"]
 
 HEADERS = {"User-Agent": "jobagent/0.1 (personal job search)"}
 
@@ -97,8 +105,11 @@ def _is_us(location: str) -> bool:
     return not any(marker in upper for marker in _NON_US_MARKERS)
 
 
-def fetch(slug: str, *, company: str | None = None, timeout: int = 20) -> list[Posting]:
-    """Fetch all open US postings for one Talemetry-hosted careers host.
+def list_postings(slug: str, *, company: str | None = None, timeout: int = 20) -> list[Posting]:
+    """List all open US posting stubs for one Talemetry-hosted careers host.
+
+    Issues zero detail GETs; `description` is left empty for the caller to
+    fill in lazily via `fetch_description`.
 
     Args:
         slug: The careers `host` (e.g. "careers.example.com"), returned
@@ -107,26 +118,37 @@ def fetch(slug: str, *, company: str | None = None, timeout: int = 20) -> list[P
         timeout: Request timeout in seconds (default 20).
 
     Returns:
-        List of normalized, US-scoped Posting objects (possibly empty).
+        List of normalized Posting stubs with empty `description`. A page
+        failure after at least one page has already succeeded stops
+        pagination but retains the postings already collected (FR-005/006).
 
     Raises:
-        requests.HTTPError: On request failure (contained by the caller in
-            fetch.py so one bad source does not abort the run).
+        requests.HTTPError: On a first-page request failure (contained by
+            the caller in fetch.py so one bad source does not abort the
+            run).
     """
     company = company or slug
     base = f"https://{slug}"
 
-    cap_raw = os.environ.get("JOBAGENT_MAX_POSTINGS_PER_EMPLOYER")
-    cap = int(cap_raw) if cap_raw else None
-
     postings: list[Posting] = []
     page = 1
     while True:
-        resp = requests.get(
-            f"{base}/jobs/", params={"page": page}, headers=HEADERS, timeout=timeout
-        )
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "html.parser")
+        try:
+            resp = requests.get(
+                f"{base}/jobs/", params={"page": page}, headers=HEADERS, timeout=timeout
+            )
+            resp.raise_for_status()
+            soup = BeautifulSoup(resp.text, "html.parser")
+        except (RequestException, ValueError):
+            if page == 1:
+                raise  # nothing has succeeded yet -> whole-source failure
+            print(
+                f"  ! talemetry/{slug} page {page} failed; "
+                f"keeping {len(postings)} prior postings",
+                file=sys.stderr,
+            )
+            break
+
         cards = soup.select(_JOB_CARD_SELECTOR)
         if not cards:
             break
@@ -148,14 +170,6 @@ def fetch(slug: str, *, company: str | None = None, timeout: int = 20) -> list[P
             if not _is_us(location):
                 continue
 
-            url = f"{base}{href}"
-            time.sleep(0.5)  # be polite
-            detail_resp = requests.get(url, headers=HEADERS, timeout=timeout)
-            detail_resp.raise_for_status()
-            detail_soup = BeautifulSoup(detail_resp.text, "html.parser")
-            description_el = detail_soup.select_one(_JOB_DESCRIPTION_SELECTOR)
-            description = description_el.decode_contents() if description_el else ""
-
             postings.append(
                 normalize(
                     source="talemetry",
@@ -163,18 +177,38 @@ def fetch(slug: str, *, company: str | None = None, timeout: int = 20) -> list[P
                     external_id=job_id,
                     title=title,
                     location=location,
-                    description=description,
-                    url=url,
+                    description="",
+                    url=f"{base}{href}",
                     posted_at=posted_at,
                 )
             )
-            if cap is not None and len(postings) >= cap:
-                return postings[:cap]  # cap reached -> stop, do not page on
 
-        time.sleep(0.5)  # be polite, between listing pages
         page += 1
 
     if not postings:
         print(f"talemetry: zero postings parsed for {slug}", file=sys.stderr)
 
     return postings
+
+
+def fetch_description(posting: Posting, *, timeout: int = 20) -> str:
+    """Fetch the full job description for one posting stub.
+
+    Args:
+        posting: A stub returned by `list_postings`; its `url` is the
+            detail endpoint.
+        timeout: Request timeout in seconds (default 20).
+
+    Returns:
+        The full job description text (empty string if absent).
+
+    Raises:
+        requests.HTTPError: On request failure.
+    """
+    resp = requests.get(posting.url, headers=HEADERS, timeout=timeout)
+    resp.raise_for_status()
+    soup = BeautifulSoup(resp.text, "html.parser")
+    description_el = soup.select_one(_JOB_DESCRIPTION_SELECTOR)
+    description = description_el.decode_contents() if description_el else ""
+    time.sleep(0.5)  # be polite
+    return description
