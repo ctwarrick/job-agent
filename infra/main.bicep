@@ -92,6 +92,10 @@ param smsCountryCode string
 @description('Action-group SMS receiver phone number. Supplied at deploy time; never committed.')
 param smsPhone string
 
+@description('Action-group short name shown as the SMS/email sender prefix (<=12 chars). Human-facing; kept separate from the resource-name prefix.')
+@maxLength(12)
+param alertShortName string = 'JobAgent'
+
 @description('Local delivery deadline hour (0-23) in tz; the missed-deadline alert evaluates as missed once local time passes this hour with no RUN_SUCCESS for the day. A deadline change is a redeploy, not a query edit (FR-002).')
 param deliveryDeadlineHourLocal int = 6
 
@@ -435,7 +439,7 @@ resource actionGroup 'Microsoft.Insights/actionGroups@2023-01-01' = {
   name: '${namePrefix}-alerts'
   location: 'global'
   properties: {
-    groupShortName: take(sanitizedPrefix, 12)
+    groupShortName: alertShortName
     enabled: true
     emailReceivers: [
       {
@@ -495,13 +499,21 @@ var missedDeadlineQuery = join([
   '| where pastDeadline and successMarkers == 0'
 ], '\n')
 
+var missedDeadlineDescription = join([
+  'Fires when no RUN_SUCCESS is logged for today by the local deadline - the'
+  'overnight pipeline delivered no digest. Action: check the Container App'
+  'job\'s latest run and logs. Auto-resolves on a recovery run or at local'
+  'midnight; a Resolved notification means the pipeline recovered and no'
+  'action is needed.'
+], ' ')
+
 resource missedDeadlineAlert 'Microsoft.Insights/scheduledQueryRules@2022-06-15' = {
   name: '${namePrefix}-missed-deadline'
   location: location
   kind: 'LogAlert'
   properties: {
-    displayName: '${namePrefix} missed morning digest'
-    description: 'No RUN_SUCCESS marker for today by the local delivery deadline; the overnight pipeline did not deliver.'
+    displayName: '${alertShortName}: morning digest missed its deadline'
+    description: missedDeadlineDescription
     severity: 1
     enabled: true
     scopes: [

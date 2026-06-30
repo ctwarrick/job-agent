@@ -34,10 +34,21 @@ SLUG = f"{TENANT}:{SITE}:{HOST}"
 class _FakeResponse:
     """Stand-in for requests.Response with a canned JSON body and status."""
 
-    def __init__(self, payload: object, status_ok: bool = True, json_raises: bool = False) -> None:
+    def __init__(
+        self,
+        payload: object,
+        status_ok: bool = True,
+        json_raises: bool = False,
+        status_code: int | None = None,
+    ) -> None:
         self._payload = payload
         self._status_ok = status_ok
         self._json_raises = json_raises
+        # Mirror requests.Response.status_code so the adapter can distinguish a
+        # 400 (a facet the tenant rejects) from other failures. A failing
+        # response defaults to 500 so the existing "propagate on error" tests
+        # keep exercising the non-400 path.
+        self.status_code = status_code if status_code is not None else (200 if status_ok else 500)
 
     def json(self) -> object:
         if self._json_raises:
@@ -46,7 +57,7 @@ class _FakeResponse:
 
     def raise_for_status(self) -> None:
         if not self._status_ok:
-            raise real_requests.HTTPError("simulated HTTP error")
+            raise real_requests.HTTPError("simulated HTTP error", response=self)
 
 
 class _FakeRequests:
@@ -162,6 +173,23 @@ def test_pagination_walks_offset_until_total_reached(fake_requests) -> None:
     assert offsets == [0, 20, 40]
     assert len(postings) == 45
     assert len(get_calls) == 0
+
+
+def test_pagination_uses_first_page_total_when_later_pages_report_zero(fake_requests) -> None:
+    # Workday reports a meaningful `total` only on the FIRST page; later pages
+    # report total=0 while still serving full pages. The loop must remember the
+    # first page's total (45) and keep paging, not stop early when page 2 says
+    # 0 (the cap-at-40 bug). It walks offset 0, 20, 40 -> all 45 postings.
+    page1 = _jobs_page(45, [_job_posting(external_path=f"/job/{i}") for i in range(20)])
+    page2 = _jobs_page(0, [_job_posting(external_path=f"/job/{i}") for i in range(20, 40)])
+    page3 = _jobs_page(0, [_job_posting(external_path=f"/job/{i}") for i in range(40, 45)])
+    fake_requests.post_responses = [page1, page2, page3]
+
+    postings = workday.list_postings(SLUG)
+
+    post_calls = [c for c in fake_requests.calls if c["method"] == "post"]
+    assert [c["json"]["offset"] for c in post_calls] == [0, 20, 40]
+    assert len(postings) == 45
 
 
 def test_pagination_stops_at_empty_page(fake_requests) -> None:
@@ -322,6 +350,64 @@ def test_jobs_post_body_carries_us_country_facet(fake_requests) -> None:
     applied_facets = body["appliedFacets"]
     assert workday.USA_COUNTRY_FACET_KEY in applied_facets
     assert workday.USA_COUNTRY_WID in applied_facets[workday.USA_COUNTRY_FACET_KEY]
+
+
+# --- 10b: facet fallback when a tenant rejects the US country facet ---------
+
+
+def test_list_postings_retries_without_facet_on_400(fake_requests) -> None:
+    # Some tenants don't expose the US country facet and 400 any request that
+    # applies it. The first faceted POST 400s; the adapter must drop the facet
+    # and retry the SAME page, then return its postings.
+    bad = _FakeResponse({}, status_ok=False, status_code=400)
+    ok_page = _jobs_page(1, [_job_posting(external_path="/job/0")])
+    fake_requests.post_responses = [bad, ok_page]
+
+    postings = workday.list_postings(SLUG)
+
+    post_calls = [c for c in fake_requests.calls if c["method"] == "post"]
+    get_calls = [c for c in fake_requests.calls if c["method"] == "get"]
+    assert len(post_calls) == 2
+    # Both attempts target the same first page (offset 0).
+    assert [c["json"]["offset"] for c in post_calls] == [0, 0]
+    # First attempt carried the US facet; the retry dropped it.
+    assert workday.USA_COUNTRY_FACET_KEY in post_calls[0]["json"]["appliedFacets"]
+    assert post_calls[1]["json"]["appliedFacets"] == {}
+    assert len(postings) == 1
+    assert len(get_calls) == 0
+
+
+def test_list_postings_raises_when_400_persists_without_facet(fake_requests) -> None:
+    # If the unfaceted retry ALSO 400s, the fallback must not mask it: with no
+    # page ever succeeding, list_postings re-raises so run_source records a
+    # whole-source failure. The retry happens exactly once (2 POSTs).
+    bad1 = _FakeResponse({}, status_ok=False, status_code=400)
+    bad2 = _FakeResponse({}, status_ok=False, status_code=400)
+    fake_requests.post_responses = [bad1, bad2]
+
+    with pytest.raises(real_requests.HTTPError):
+        workday.list_postings(SLUG)
+
+    post_calls = [c for c in fake_requests.calls if c["method"] == "post"]
+    assert len(post_calls) == 2
+    assert post_calls[0]["json"]["appliedFacets"] != {}
+    assert post_calls[1]["json"]["appliedFacets"] == {}
+
+
+def test_list_postings_keeps_facet_across_pages_when_accepted(fake_requests) -> None:
+    # A tenant that accepts the facet must never trigger the unfaceted retry:
+    # every page keeps the facet and the POST count equals the page count.
+    page1 = _jobs_page(25, [_job_posting(external_path=f"/job/{i}") for i in range(20)])
+    page2 = _jobs_page(25, [_job_posting(external_path=f"/job/{i}") for i in range(20, 25)])
+    fake_requests.post_responses = [page1, page2]
+
+    postings = workday.list_postings(SLUG)
+
+    post_calls = [c for c in fake_requests.calls if c["method"] == "post"]
+    assert len(post_calls) == 2
+    for c in post_calls:
+        assert workday.USA_COUNTRY_FACET_KEY in c["json"]["appliedFacets"]
+    assert len(postings) == 25
 
 
 # --- 11-12: company display-name resolution ---------------------------------
