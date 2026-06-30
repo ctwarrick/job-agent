@@ -47,6 +47,12 @@ scripts/validate-infra.sh  # compile-check Bicep infra (no Azure needed)
   Args/Returns/Raises on functions (module docstrings keep the why + data
   contract); type hints on all functions, `Any` only when truly necessary.
   Applied at write time, never as a post-hoc sweep.
+- The 100-char line limit applies to all file types (Bicep, Markdown, YAML,
+  shell), not only Python — applied at write time, not a post-hoc sweep. It
+  governs *wrappable* content; un-wrappable Bicep/ARM decorators (`@description`,
+  `@metadata`) that have no clean line continuation are exempt and follow the
+  file's existing single-line pattern, while the human-facing strings inside
+  them (e.g. `join()` description bodies) still wrap to ≤100.
 - Tests are stub-based with no network calls — follow the patterns in `tests/`.
 
 ## Sensitive files — never commit, never quote

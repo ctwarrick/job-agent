@@ -60,7 +60,11 @@ Top (inherit) — catching bugs at the last gate is where judgment pays.
    verify the command's *shape* against its tool docs, not just its prose —
    a flag that silently replaces rather than merges state (e.g.
    `containerapp job start --env-vars` replacing the whole template) is a
-   REVISE finding even when the surrounding edit looks cosmetic.
+   REVISE finding even when the surrounding edit looks cosmetic. Also scan the
+   immediate code path the diff sits in for adjacent latent defects — a variable
+   left stranded by a decoupling, a sibling branch carrying the same bug the
+   diff fixes in one place — and report them as findings; the diff's blast
+   radius includes the code it touches, not only the code that calls it.
 6. Check no sensitive file (the personal-data files listed in `AGENTS.md`) is
    touched, quoted, or newly committed, and that any company/slug/tenant in
    committed tests, examples, or docs is a fictional placeholder, not a real

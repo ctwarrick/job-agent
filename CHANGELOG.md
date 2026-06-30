@@ -6,6 +6,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it reaches 1.0.0. Before 1.0.0, minor versions may include breaking changes.
 
+## [2.3.0] - 2026-06-30
+
+### Fixed
+
+- **Workday facet fallback**: tenants that do not expose the US country facet
+  now return HTTP 400 on any request that applies it. The adapter detects this
+  via the new `_is_bad_request` helper, drops the facet, and retries the page
+  facet-free, so those sources produce results instead of failing the source
+  outright. The downstream location filter still scopes to the US, so the
+  only cost is additional list pages, not extra detail fetches.
+- **Workday pagination**: Workday echoes `total: 0` on every page after the
+  first while still serving full result pages, causing the walk to stop after
+  one page on multi-page boards. The adapter now captures `total` once from
+  the first page and uses that count for the remainder of the walk, stopping
+  on the captured total or on a short/empty page rather than on a later page's
+  bogus zero.
+
+### Changed
+
+- **Alert action-group short name**: the Azure action-group `groupShortName`
+  (the prefix that appears on alert SMS messages and email subjects) is now
+  driven by a dedicated `alertShortName` param (default `JobAgent`,
+  `@maxLength(12)`) instead of `take(sanitizedPrefix, 12)`, which rendered as
+  the mangled seven-character string `jobagen`. The param has a sensible default
+  and does not require a `main.bicepparam` entry unless the forker wants to
+  override it.
+- **Missed-deadline alert display name and description**: the rule's
+  `displayName` is rewritten to `{alertShortName}: morning digest missed its
+  deadline` so it reads correctly under both Azure's `Fired:` and `Resolved:`
+  prefixes. The `description` is expanded to name the recommended action and to
+  explain that a `Resolved` notification means the pipeline recovered on its
+  own and no action is needed (the rule has `autoMitigate: true`).
+
 ## [2.2.0] - 2026-06-27
 
 Fixes the production outage where a large Workday board exhausted the daily

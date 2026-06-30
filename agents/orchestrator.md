@@ -84,7 +84,17 @@ Every subagent prompt must contain:
   gate (independent review, green pytest) is recorded as done in the handoff
   only by naming the subagent dispatch that satisfied it; "self-review" or
   "self-checked" is recorded as *not done* so the resuming session re-runs the
-  gate.
+  gate. Any commit/tag state a handoff asserts about *other* work (a bundled
+  predecessor, an upstream branch) is git-verified at write time and stamped
+  with the commit SHA if true; write "uncommitted in working tree" if you did
+  not confirm a commit. A handoff never asserts a commit it did not see in
+  `git log`.
+- When a handoff or release bundles a predecessor it calls "already committed,"
+  verify that claim against `git log`/`git status` before acting on it — never
+  trust a prior handoff's commit assertion. If the predecessor's files are still
+  in the working tree, surface it and have the human commit that increment on
+  its own user-story boundary *before* the current work is committed; never let
+  two features land in one commit.
 - Don't dispatch for what a single read or grep answers — do it inline.
 - Before asking the human for a concrete fact (a host, ID, name, path), grep
   the repo for it first — including `plans/`, `docs/`, and prior specs. A rule
