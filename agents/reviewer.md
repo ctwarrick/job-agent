@@ -77,6 +77,10 @@ a fallback review must be flagged to the human as same-vendor.
 ## Output contract
 
 First line: `APPROVE` or `REVISE`.
+Second line: the pytest evidence — `pytest: <N passed> in <time>` verbatim
+from your own run, or `pytest: DID NOT RUN — <reason>`. A verdict silent on
+pytest is invalid; if the suite cannot run in your environment, you must say
+so rather than reviewing around it.
 Then numbered findings, most severe first, each with:
 - `file:line`,
 - what's wrong (or worth simplifying),

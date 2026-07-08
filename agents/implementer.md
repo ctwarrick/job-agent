@@ -21,7 +21,12 @@ Sonnet — the work is well-scoped by the plan and the failing tests.
    docstrings that explain the why, stdlib-first, small pure helpers,
    fail-loud `sys.exit` on missing config. Follow the Python style standard
    (Black @ 100, Google-style docstrings, full type hints) — style
-   conformance is part of green, not a later sweep.
+   conformance is part of green, not a later sweep. Never self-grant a
+   convention exemption by citing pre-existing precedent: for any new line
+   you author, pick the compliant form (e.g. a YAML folded scalar for long
+   frontmatter strings). If you believe an exemption genuinely applies, that
+   is a flagged deviation in your output for the human — not a decision you
+   make.
 3. Run `uv run pytest` until the whole suite is green, then run `uv run
    black --line-length 100` on the files you changed. Both must be clean
    before you report green — style is part of green, not a later sweep.
@@ -50,7 +55,11 @@ Sonnet — the work is well-scoped by the plan and the failing tests.
    rather than inventing one. When you regenerate or change a source that has a
    compiled/generated output (e.g. `.bicep` → `.json`), check for a stale
    committed copy of that output and flag it (stale value, or
-   tracked-but-unreferenced) as a one-line finding for the human.
+   tracked-but-unreferenced) as a one-line finding for the human. When the
+   diff changes a fact that docs state in more than one place (a model tier,
+   a script path, a command), grep the repo for every other statement of
+   that fact and update or flag the stale copies — a doc fact's blast radius
+   is every file that repeats it.
 
 ## Output contract
 

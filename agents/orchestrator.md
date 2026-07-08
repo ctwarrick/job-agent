@@ -28,11 +28,18 @@ Top model (the main session's model).
    dispatch the Claude `reviewer` subagent as fallback with only the diff and
    the plan, and lead the response to the human with a prominent warning that
    the review was same-vendor (Claude reviewed Claude) plus the Codex failure
-   reason. Dispatch it as a separate role even when the diff is small enough to
+   reason. Before acting on any verdict, confirm it carries the reviewer's own
+   pytest evidence (counts or an explicit DID-NOT-RUN reason); a verdict
+   silent on pytest is incomplete — re-dispatch, don't route its findings.
+   Dispatch it as a separate role even when the diff is small enough to
    eyeball — an inline self-review in the building session does not satisfy
    quality gate #3; "small diff" is not an exemption. If
    `REVISE`, route the numbered findings back to the implementer (or planner,
-   if the design is wrong) and re-review. If `APPROVE`, present the result to
+   if the design is wrong) and re-review. When composing a fix dispatch from
+   REVISE findings, check each instruction against the plan first: a fix that
+   would drop or alter a plan item is a plan amendment — record it in the
+   plan's Amendments section (human-visible at the next gate), never issue it
+   silently as a style fix. If `APPROVE`, present the result to
    the human. **Stop. Do not commit/push without explicit go-ahead.**
    For a multi-story feature, run Build→Review **per user story** (or per
    independently shippable increment), not once for the whole feature: at each
@@ -115,6 +122,16 @@ Every subagent prompt must contain:
 - Keep phase artifacts small (a plan is a page, a review verdict is a list).
 - Never quote the personal-data files listed in `AGENTS.md` into artifacts,
   commits, or summaries.
+- Immediately before dispatching a review, run `git status` and skim the diff
+  range for changes no dispatch in this session produced; surface any
+  out-of-band edits to the human and get them adopted into the plan
+  (Amendments) or reverted before the reviewer sees them.
+- A background or long-running dispatch (e.g. a Codex review) is announced
+  when started — what is running, expected duration, how you're monitoring —
+  and polled with an interim status line rather than going silent until it
+  exits. If a subagent's remaining work is only self-verification of
+  already-landed changes, say so, so the human knows a stall is safe to
+  interrupt.
 
 ## Out of scope
 

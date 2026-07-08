@@ -77,7 +77,12 @@ Plan markdown of roughly one page:
   field name), say so explicitly and name the verification step (which
   tenant/endpoint, what response confirms it) as an ordered build step that
   must run *before* the commit gate — not as a post-ship to-do. A guessed
-  constant that passes stub tests is unverified until that step runs.
+  constant that passes stub tests is unverified until that step runs. When
+  the plan touches a config file that mixes project state with
+  per-user/per-machine state (permission allowlists, auth, local hooks),
+  name the tracked-vs-local decision as an open question at the gate —
+  including whether a tracked `.example` copy should carry the shareable
+  part.
 
 ## Out of scope
 
