@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it reaches 1.0.0. Before 1.0.0, minor versions may include breaking changes.
 
+## [2.4.1] - 2026-07-08
+
+### Fixed
+
+- **Budget redeploy failure**: the v2.4.0 deploy failed with Azure error
+  "Start date of budgets cannot be updated" — a
+  `Microsoft.Consumption/budgets` `startDate` is immutable after creation,
+  but `infra/main.bicep` defaulted `budgetStartDate` to the first of the
+  *current* UTC month via `utcNow`, so any redeploy in a later month than the
+  live budget's creation month computed a different date and 400'd.
+  `infra/main.bicepparam` now pins `param budgetStartDate =
+  '2026-06-01T00:00:00Z'` to the existing `jobagent-monthly` budget's actual
+  creation date; the `utcNow` default in `infra/main.bicep` remains correct
+  only for a fresh environment's first deploy. `@description` and the
+  comment block above the `budget` resource in `infra/main.bicep` are
+  corrected to state the immutability rule instead of claiming the default
+  makes every redeploy safe.
+
+### Changed
+
+- `scripts/review-codex.sh`: the sandboxed Codex reviewer can now re-run
+  `scripts/validate-infra.sh` on infra diffs. It seeds
+  `AZURE_CONFIG_DIR=/tmp/jobagent-azure` with `bin/bicep` symlinked to the
+  az-managed binary at `~/.azure/bin/bicep` (a bare override loses the
+  binary, and the sandbox has no network to re-fetch it), and exports
+  `DOTNET_BUNDLE_EXTRACT_BASE_DIR=/tmp/jobagent-dotnet` since bicep's .NET
+  single-file bundle self-extracts under `$HOME`, which is read-only in the
+  sandbox.
+
 ## [2.4.0] - 2026-07-08
 
 ### Added
