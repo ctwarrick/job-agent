@@ -24,3 +24,4 @@ screening_prompt.md
 registry.txt
 registry.toml
 filter.toml
+.claude/settings.json

@@ -21,8 +21,14 @@ Top model (the main session's model).
 3. **Build (TDD).** Dispatch **Test-writer** with the approved plan; confirm
    the new tests fail for the right reason. Then dispatch **Implementer** with
    the plan + failing-test summary; confirm pytest is green.
-4. **Review.** Dispatch **Reviewer** with only the diff and the plan.
-   Dispatch it as a separate role even when the diff is small enough to
+4. **Review.** Dispatch the review by running via Bash
+   `scripts/review-codex.sh <diff-range> <plan-path> docs/work/<task>/review.md`
+   (GPT-5.5 on Codex — cross-vendor). If the script exits non-zero (codex
+   missing, auth expired, model rejected, network down), automatically
+   dispatch the Claude `reviewer` subagent as fallback with only the diff and
+   the plan, and lead the response to the human with a prominent warning that
+   the review was same-vendor (Claude reviewed Claude) plus the Codex failure
+   reason. Dispatch it as a separate role even when the diff is small enough to
    eyeball — an inline self-review in the building session does not satisfy
    quality gate #3; "small diff" is not an exemption. If
    `REVISE`, route the numbered findings back to the implementer (or planner,
@@ -75,9 +81,12 @@ Every subagent prompt must contain:
   the phase and checkpoint; at HIGH write `handoff.md` and recommend a fresh
   session; at CRITICAL stop dispatching and hand off immediately.
 - A gate task may be checked off only with the dispatch that satisfied it
-  named in the same line — the review task records the reviewer subagent and
-  its diff range, never "self-review"; an inline self-review never checks the
-  independent-review box.
+  named in the same line — the review task records the runner and its diff
+  range, e.g. "codex exec / gpt-5.5, range X" or "claude reviewer subagent
+  (FALLBACK, same-vendor), range X", never "self-review". A fallback review
+  still satisfies quality gate #3's fresh-context requirement, but the
+  same-vendor caveat travels with the record into handoffs. An inline
+  self-review never checks the independent-review box.
 - A handoff.md is consumed the moment a session resumes from it: at session
   close, rewrite it to reflect the new state (or mark it superseded in
   state.md) so the next session never resumes from stale instructions. A hard

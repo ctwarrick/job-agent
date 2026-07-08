@@ -1,6 +1,11 @@
 ---
 name: reviewer
-description: Independent fresh-context review of a diff against its plan. Re-runs pytest itself and returns APPROVE/REVISE with numbered findings. Give it only the diff and the plan — never the implementer's transcript.
+description: >-
+  Independent fresh-context review of a diff against its plan. Re-runs
+  pytest itself and returns APPROVE/REVISE with numbered findings. Give it
+  only the diff and the plan — never the implementer's transcript.
+  FALLBACK runner: primary review is GPT-5.5 via scripts/review-codex.sh;
+  a fallback review is same-vendor and must be flagged.
 tools: Read, Grep, Glob, Bash
 model: inherit
 ---

@@ -31,6 +31,7 @@ uv run jobagent-fetch      # single stage
 uv run jobagent-score
 uv run jobagent-digest
 scripts/validate-infra.sh  # compile-check Bicep infra (no Azure needed)
+scripts/review-codex.sh RANGE PLAN [OUT]  # cross-vendor review via Codex (GPT-5.5)
 ```
 
 ### Conventions
@@ -87,14 +88,22 @@ Specify → Plan → [HUMAN APPROVES] → Build (TDD: test-writer → implemente
 | Planner | top (inherit) | spec + scout digest → implementation plan | plan markdown for the human gate |
 | Test-writer | sonnet | failing pytest tests from the approved plan | test paths + red-failure summary |
 | Implementer | sonnet | minimal diff to make tests pass | changed files + green pytest summary |
-| Reviewer | top (inherit) | fresh-context diff review, runs pytest itself | `APPROVE`/`REVISE` + numbered findings |
+| Reviewer | GPT-5.5 (Codex CLI) | diff review via `scripts/review-codex.sh`, runs pytest itself | `APPROVE`/`REVISE` + numbered findings |
 | Releaser | sonnet | release prep: CHANGELOG, version bump + `uv lock`, README drift check | proposed version + changelog section + README edits |
 | Retrospective | top (inherit) | post-ship analysis of agent performance | recommended edits to `agents/*.md` |
 
 Model-tier rationale: spend top-model tokens where judgment is the product
 (orchestration, architecture, the final bug-catching gate, meta-review); use
 sonnet where the task is well-scoped by an approved plan; use haiku where the
-work is mechanical search.
+work is mechanical search. The final bug-catching gate additionally runs
+cross-vendor (GPT-5.5 via Codex CLI) so reviewer and implementer never share
+one model family's blind spots; the Claude reviewer subagent remains the
+flagged fallback.
+
+Prerequisites for the cross-vendor reviewer: Codex CLI installed and
+authenticated via `codex login` (ChatGPT plan — subscription quota, not API
+billing). Override the review model with env `JOBAGENT_REVIEW_MODEL` if a
+plan tier rejects gpt-5.5.
 
 ### Delegation rules (token discipline)
 
@@ -112,8 +121,10 @@ work is mechanical search.
 Model performance degrades well before the context window is full, and
 autocompact (which *summarizes* — lossy) only fires near the hard limit. We
 get ahead of both. A hook (`.claude/hooks/context_monitor.py`, registered in
-`.claude/settings.json`) measures real token usage after every tool call and
-user prompt against an **effective budget** =
+`.claude/settings.json` — that file is local and untracked because it also
+holds per-user permission greenlists; copy `.claude/settings.json.example`
+to register the hook) measures real token usage after
+every tool call and user prompt against an **effective budget** =
 `min(200K performance budget, 80% of the current model's window)`. It is
 model-aware: a Haiku subagent (200K window) is measured against 160K, while
 1M-window models are measured against the flat 200K sweet-spot budget.
@@ -161,7 +172,7 @@ Principles:
 - `agents/planner.md` — implementation plans (top)
 - `agents/test-writer.md` — red phase: failing tests (sonnet)
 - `agents/implementer.md` — green phase: minimal diff (sonnet)
-- `agents/reviewer.md` — independent diff review (top)
+- `agents/reviewer.md` — independent diff review (GPT-5.5 via Codex; Claude fallback)
 - `agents/releaser.md` — release prep: changelog, version, lock, README (sonnet)
 - `agents/retrospective.md` — post-ship agent-performance review (top)
 

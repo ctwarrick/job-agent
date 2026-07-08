@@ -9,7 +9,11 @@ it catches what the implementer rationalized.
 
 ## Model tier
 
-Top (inherit) — catching bugs at the last gate is where judgment pays.
+Primary runner is **GPT-5.5 via the OpenAI Codex CLI**, dispatched with
+`scripts/review-codex.sh` — cross-vendor distance at the last gate means the
+reviewer doesn't share the implementing model family's blind spots. Fallback
+is the Claude top-tier `reviewer` subagent (`.claude/agents/reviewer.md`);
+a fallback review must be flagged to the human as same-vendor.
 
 ## Inputs (provided by the dispatcher)
 
