@@ -102,7 +102,7 @@ param deliveryDeadlineHourLocal int = 6
 @description('Monthly cloud spend ceiling in account currency for the cost budget; alerts fire at 50% and 80% of this. The $50 figure is the constitutional all-in ceiling (FR-014, SC-002); the Anthropic/LLM half is a separate console budget per quickstart.md Bootstrap.')
 param budgetAmount int = 50
 
-@description('Cost-budget period start. A Microsoft.Consumption/budgets resource requires the first of a month (and, for a Monthly grain, the current month); this defaults to the first of the current UTC month so a redeploy never trips that rule. The rule is enforced at deploy, not by az bicep build.')
+@description('Cost-budget period start. IMMUTABLE once the budget exists — Azure rejects any deploy that changes it ("Start date of budgets cannot be updated"), so an existing environment must pin this in main.bicepparam to the date the budget was created with. The utcNow default (first of the current UTC month, per the Consumption first-of-month creation rule) is safe only for the FIRST deploy into a fresh environment. Both rules are enforced at deploy, not by az bicep build.')
 param budgetStartDate string = '${utcNow('yyyy-MM')}-01T00:00:00Z'
 
 // ---------------------------------------------------------------------------
@@ -555,9 +555,12 @@ resource missedDeadlineAlert 'Microsoft.Insights/scheduledQueryRules@2022-06-15'
 // the $50 all-in ceiling; the Anthropic/LLM half is a separate console budget,
 // the documented manual step in quickstart.md Bootstrap.
 //
-// startDate must be the first of the (current) month per the Consumption rule;
-// budgetStartDate defaults to that. That rule is enforced at DEPLOY, not by
-// `az bicep build` — a hand-set bad date fails at T046, not validate-infra.sh.
+// startDate must be the first of a month per the Consumption rule, and is
+// IMMUTABLE after creation — a redeploy whose date differs from the existing
+// budget's fails with "Start date of budgets cannot be updated". The utcNow
+// default is therefore creation-only; existing environments pin the original
+// date in main.bicepparam. Both rules are enforced at DEPLOY, not by
+// `az bicep build` — a bad date fails at deploy, not validate-infra.sh.
 // ---------------------------------------------------------------------------
 
 resource budget 'Microsoft.Consumption/budgets@2023-05-01' = {

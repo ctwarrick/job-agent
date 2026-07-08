@@ -14,9 +14,11 @@
 // receiver-less alert.
 //
 // budgetAmount is the cloud-side monthly ceiling for the Microsoft.Consumption
-// budget (T043); budgetStartDate is left to its in-template default (first of
-// the current UTC month) so the Consumption first-of-month rule is never
-// tripped by a stale committed date.
+// budget (T043). budgetStartDate is PINNED to the date the live budget was
+// created with (2026-06-01): Azure forbids changing a budget's start date
+// after creation, so the template's utcNow default would break every redeploy
+// in a later month. When bootstrapping a fresh environment, set this to the
+// first of that month (or delete the stale budget first).
 
 using 'main.bicep'
 
@@ -28,6 +30,7 @@ param maxPostingsPerRun = 200
 param maxCostPerRun = '5.00'
 param retentionDays = 60
 param budgetAmount = 50
+param budgetStartDate = '2026-06-01T00:00:00Z'
 
 // Secret action-group receivers — values read from the environment at compile
 // time, never committed (see header). No default: a missing variable fails the

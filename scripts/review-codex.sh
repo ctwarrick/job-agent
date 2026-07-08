@@ -96,6 +96,21 @@ EOF
 # the reviewer can actually run the mandated `uv run pytest`.
 export UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/jobagent-uv-cache}"
 
+# Same for az: ~/.azure is read-only in the sandbox, and az keys its managed
+# bicep binary to the config dir, so a bare AZURE_CONFIG_DIR override would
+# try (and fail, offline) to re-download bicep. Seed a writable config dir
+# with a symlink to the local binary so the reviewer can re-run
+# `scripts/validate-infra.sh` when the diff touches infra.
+export AZURE_CONFIG_DIR="${AZURE_CONFIG_DIR:-/tmp/jobagent-azure}"
+if [ ! -x "$AZURE_CONFIG_DIR/bin/bicep" ] && [ -x "$HOME/.azure/bin/bicep" ]; then
+  mkdir -p "$AZURE_CONFIG_DIR/bin"
+  ln -sf "$HOME/.azure/bin/bicep" "$AZURE_CONFIG_DIR/bin/bicep"
+fi
+
+# bicep is a .NET single-file bundle that self-extracts under $HOME unless
+# told otherwise; $HOME is read-only in the sandbox, so give it /tmp.
+export DOTNET_BUNDLE_EXTRACT_BASE_DIR="${DOTNET_BUNDLE_EXTRACT_BASE_DIR:-/tmp/jobagent-dotnet}"
+
 exec codex exec \
   --sandbox workspace-write \
   --ephemeral \
