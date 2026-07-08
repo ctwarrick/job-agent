@@ -6,6 +6,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it reaches 1.0.0. Before 1.0.0, minor versions may include breaking changes.
 
+## [2.4.0] - 2026-07-08
+
+### Added
+
+- `scripts/review-codex.sh`: dispatches the Reviewer role cross-vendor to
+  GPT-5.5 via the OpenAI Codex CLI (`codex exec --sandbox workspace-write`),
+  so the final bug-catching gate no longer shares a model family with the
+  Claude roles that planned and implemented the change. Usage:
+  `scripts/review-codex.sh <diff-range> <plan-path> [verdict-out]`; the
+  reviewer runs `uv run pytest` itself inside the sandbox (the script exports
+  `UV_CACHE_DIR`, default `/tmp/jobagent-uv-cache`, since uv's default
+  `~/.cache/uv` is read-only there) and emits the same `APPROVE`/`REVISE` +
+  numbered-findings contract as the Claude reviewer subagent. The model is
+  overridable via `JOBAGENT_REVIEW_MODEL` for ChatGPT tiers that reject
+  `gpt-5.5`. Prerequisite: Codex CLI installed and authenticated via `codex
+  login` (ChatGPT plan — subscription quota, not API billing).
+
+### Changed
+
+- Reviewer role card (`agents/reviewer.md`) and orchestrator (`agents/
+  orchestrator.md` step 4): the primary review runner is now GPT-5.5 via
+  `scripts/review-codex.sh`; if the script exits non-zero (missing/expired
+  Codex auth, rejected model, network down), the orchestrator automatically
+  falls back to the Claude `reviewer` subagent and flags the fallback to the
+  human as a same-vendor review. Gate records now name the runner used
+  ("codex exec / gpt-5.5" or "claude reviewer subagent (FALLBACK,
+  same-vendor)").
+- `AGENTS.md` role routing table, model-tier rationale, and commands list
+  updated to match: the Reviewer row names `scripts/review-codex.sh` and its
+  Codex CLI / `codex login` / `JOBAGENT_REVIEW_MODEL` prerequisites.
+- `.claude/agents/reviewer.md` frontmatter now describes this Claude subagent
+  as the fallback runner, used only when `scripts/review-codex.sh` fails;
+  its behavior is otherwise unchanged.
+- `.claude/settings.json` is now local and untracked (it also holds
+  per-user permission greenlists); a tracked `.claude/settings.json.example`
+  ships the hooks-only config for forkers to copy, and `.gitignore` gains a
+  `.claude/settings.json` entry.
+
 ## [2.3.0] - 2026-06-30
 
 ### Fixed
