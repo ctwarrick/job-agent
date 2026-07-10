@@ -6,6 +6,80 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it reaches 1.0.0. Before 1.0.0, minor versions may include breaking changes.
 
+## [3.0.0] - 2026-07-10
+
+Permanent fix for the overnight-run scaling problem that 2.4.2 band-aided:
+the fetch stage now runs boards concurrently against a stage-wide budget
+inside a 2-hour execution window, instead of relying on a longer sequential
+timeout alone. Spec'd in `specs/007-overnight-scale/spec.md`.
+
+### Added
+
+- Stage-wide fetch budget (FR-003): `fetch.main()` computes a wall-clock
+  `stage_deadline` once up front from the new `JOBAGENT_FETCH_BUDGET_SECONDS`
+  (default `5400`, 90 min) and stops submitting new boards once it passes,
+  rather than letting the fetch stage run unbounded and crowd out scoring and
+  the digest. A board never dispatched is reported as a new degraded-digest
+  category, "budget-deferred" (`reason="budget_deferred"`), distinct from a
+  wholly-failed or partially-fetched source, and is never marked converged so
+  it sorts first on the next run (no starvation).
+- Startup coherence check (FR-004, `main.py`): before `store.init()` or any
+  other external effect, the run validates that
+  `JOBAGENT_FETCH_BUDGET_SECONDS` plus the new
+  `JOBAGENT_SCORE_DIGEST_HEADROOM_SECONDS` (default `1800`, 30 min reserved
+  for scoring + the digest) fits inside the new required
+  `JOBAGENT_EXECUTION_WINDOW_SECONDS`. A misconfigured budget/headroom/window
+  combination fails loud with a diagnosable message instead of letting the
+  platform kill an in-flight run with no trace.
+- Least-recently-fetched dispatch ordering (FR-006): a new
+  `store.sources_by_recency()` ranks every registered `(vendor, company)` by
+  its last-converged timestamp (never-fetched first), and `fetch.main()`
+  dispatches boards in that order across the whole registry, so the oldest or
+  never-fetched board is served first regardless of registry position.
+  Greenhouse/Lever (single-request, whole-board-in-one-call vendors) now call
+  the new `store.mark_converged()` on a clean fetch too, extending the
+  resilient adapters' existing convergence bookkeeping to give the ordering a
+  total, registry-wide signal.
+- Board-level concurrent fetch (FR-007/FR-008): `fetch.main()` dispatches up
+  to `JOBAGENT_FETCH_CONCURRENCY` (default `8`) boards in parallel through a
+  bounded `ThreadPoolExecutor`. A new module-level `_STORE_LOCK` serializes
+  every SQLite write (and each board's summary log line) across worker
+  threads, since the store's default rollback-journal connection has no busy
+  timeout; the adapter/network call itself runs off-lock, which is where the
+  concurrency comes from. A new `_LockingStore` proxy is handed to
+  `resilient.run_source` so a two-phase (Workday/iCIMS/Talemetry) board's
+  slow listing/description fetches parallelize with other boards while only
+  its individual store ops serialize. One board raising is contained to its
+  own failed-source record and never blocks its siblings.
+  `JOBAGENT_FETCH_CONCURRENCY=1` reproduces the prior strict
+  submit-one/wait-one sequential path and ordering exactly.
+- `infra/main.bicep` / `infra/main.bicepparam`: `replicaTimeoutSeconds` is now
+  `7200` (2 hours, up from the 2.4.2 stopgap's `2700`), `cronExpression` is
+  `'0 8,10,12 * * *'` (three attempts spaced to match the new window), and the
+  Container Apps Job passes `JOBAGENT_EXECUTION_WINDOW_SECONDS` set to
+  `string(replicaTimeoutSeconds)` — the app validates against the exact
+  deadline the platform enforces, single source of truth.
+
+### Changed
+
+- `digest.py` / `main.py`: the degraded-run summary now names a
+  budget-deferred count separately from failed and partial source counts
+  (e.g. "2 sources failed; 1 source partial; 1 board deferred; 919 unscored
+  (cap=cost)"), so a budget-bound night is distinguishable from an adapter
+  failure or a per-source backstop truncation without reading logs.
+
+### Breaking
+
+- `JOBAGENT_EXECUTION_WINDOW_SECONDS` is a new environment variable with no
+  code default, and `main.py` now fails loud (`sys.exit`) at startup if it is
+  unset. Production Bicep deploys already set it (see above), so a deployed
+  instance is unaffected once redeployed on this version, but a local/dev
+  invocation of `uv run python main.py` that previously ran with no extra
+  config must now export it explicitly (e.g. `export
+  JOBAGENT_EXECUTION_WINDOW_SECONDS=7200`). This mirrors the precedent set by
+  2.0.0's required `registry.toml`: an unset required input fails loud rather
+  than silently running against a window the platform doesn't actually honor.
+
 ## [2.4.2] - 2026-07-09
 
 ### Fixed

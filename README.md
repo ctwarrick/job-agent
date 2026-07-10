@@ -48,6 +48,7 @@ export SMTP_PORT=587
 export SMTP_USER=you@example.com
 export SMTP_PASS=...
 export DIGEST_TO=you@example.com      # optional, defaults to SMTP_USER
+export JOBAGENT_EXECUTION_WINDOW_SECONDS=7200  # required by main.py; see below
 ```
 
 Optional env vars:
@@ -77,6 +78,25 @@ Optional env vars:
   run exhausting its execution window.
 - `JOBAGENT_STALENESS_BOUND_DAYS` — days a source may stay truncated before it
   is surfaced as a persistent degradation in the digest (default `7`).
+- `JOBAGENT_EXECUTION_WINDOW_SECONDS` — **required by `main.py`, no code
+  default.** Total wall-clock window the platform allows the run; `main.py`
+  fails loud at startup, before any external effect, if the fetch budget plus
+  the score/digest headroom (both below) can't fit inside it. Azure deploys
+  set it automatically to `replicaTimeoutSeconds` (`infra/main.bicep`); a
+  local run of `uv run python main.py` must export it explicitly (the
+  individual stage commands below don't need it).
+- `JOBAGENT_FETCH_BUDGET_SECONDS` — wall-clock budget for the whole fetch
+  stage (default `5400`, 90 min). Boards are dispatched in
+  least-recently-fetched order; once the budget passes, no further board is
+  submitted, and each deferred board is reported in the digest as
+  budget-deferred (rather than failed) and dispatched first on the next run.
+- `JOBAGENT_SCORE_DIGEST_HEADROOM_SECONDS` — wall-clock headroom reserved for
+  scoring + the digest, checked against
+  `JOBAGENT_EXECUTION_WINDOW_SECONDS` at startup (default `1800`, 30 min).
+- `JOBAGENT_FETCH_CONCURRENCY` — max boards fetched in parallel via a bounded
+  thread pool (default `8`). A single module-level lock serializes SQLite
+  writes across boards; set to `1` to reproduce the old strict sequential
+  fetch order.
 - `JOBAGENT_FORCE` — set to `1` to re-run a digest_date that already
   succeeded today.
 - `DIGEST_MIN_SKILLS` / `DIGEST_MAX_RISK` — digest thresholds (defaults `6`
@@ -107,10 +127,14 @@ uv run pytest
 
 ## Pipeline
 1. **fetch** — one adapter per ATS vendor returns a common `Posting` schema.
-   Dedupe is a hash of title+company+location+description, so cross-posts
-   collapse while distinct postings with the same title/company/location
-   stay separate. `INSERT OR IGNORE` keeps re-runs idempotent: scores and
-   dismissals survive.
+   Boards are fetched concurrently (`JOBAGENT_FETCH_CONCURRENCY`) in
+   least-recently-fetched order against a stage-wide wall-clock budget
+   (`JOBAGENT_FETCH_BUDGET_SECONDS`); a board deferred by the budget is
+   dispatched first next run rather than starving. Dedupe is a hash of
+   title+company+location+description, so cross-posts collapse while
+   distinct postings with the same title/company/location stay separate.
+   `INSERT OR IGNORE` keeps re-runs idempotent: scores and dismissals
+   survive.
 2. **score** — batches unscored postings, scores each on skills_fit,
    seniority_fit, category_risk (career pull), plus bucket / comp_flag /
    trajectory_note. Judges SUBSTANCE, ignores title and Scrum vocabulary.
