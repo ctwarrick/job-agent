@@ -83,4 +83,9 @@ Total ≤25 lines.
   bound) whose fixture may never exercise the failure path the guardrail exists
   for.
 - Refactors or features beyond the plan ("while I was in there...").
+- Adding production code whose only purpose is to satisfy a test-fixture gap.
+  If a pre-existing test fails because its fixture doesn't stub a new call
+  site, that is a test-writer hand-back, not an implementer fix — don't paper
+  over it by making production code self-heal (e.g. a `CREATE TABLE IF NOT
+  EXISTS` in a read/write path). Schema/DDL lives solely in `init()`.
 - Touching the personal-data files listed in `AGENTS.md`.

@@ -94,3 +94,7 @@ if there are more, the diff is too big — say so and recommend splitting.
 - Fixing the code itself — findings go back through the orchestrator.
 - Re-litigating the approved plan's design (flag as a finding only if it
   causes a correctness problem).
+- Raising a `REVISE` that requires a capability the language/runtime cannot
+  provide (e.g. forcibly killing a thread blocked in C-level I/O). A `REVISE`
+  must name an achievable fix; frame a runtime-impossible ask as an advisory
+  risk note with the residual bound, not a blocking finding.

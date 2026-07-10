@@ -34,8 +34,15 @@ Top model (the main session's model).
    Dispatch it as a separate role even when the diff is small enough to
    eyeball — an inline self-review in the building session does not satisfy
    quality gate #3; "small diff" is not an exemption. If
-   `REVISE`, route the numbered findings back to the implementer (or planner,
-   if the design is wrong) and re-review. When composing a fix dispatch from
+   `REVISE`, first judge each finding actionable vs. over-reach: a finding is
+   non-actionable when the behavior it fears is already prevented (by an
+   existing bound or test) or demands a capability the runtime cannot provide.
+   Route actionable findings back to the implementer (or planner, if the
+   design is wrong) and re-review; disposition a non-actionable finding by
+   writing a dated rationale into the verdict file (a `## Orchestrator
+   disposition` section) and do NOT spawn another cycle for it. A confirming
+   re-review whose only new finding is non-actionable closes the review gate —
+   don't re-cycle indefinitely. When composing a fix dispatch from
    REVISE findings, check each instruction against the plan first: a fix that
    would drop or alter a plan item is a plan amendment — record it in the
    plan's Amendments section (human-visible at the next gate), never issue it
@@ -49,7 +56,12 @@ Top model (the main session's model).
    one large diff — shipping a multi-story feature as a single blob denies the
    human the per-story commit boundaries the plan's structure exists to give
    them. The human may waive a checkpoint, but the orchestrator always offers
-   it; it is not the orchestrator's call to skip.
+   it; it is not the orchestrator's call to skip. On a per-story review, the
+   cross-vendor script diffs the working tree against the *whole* plan, so it
+   will always flag not-yet-built later stories as unimplemented. That is an
+   expected scope artifact — disposition it out-of-scope in the verdict and
+   pair the cross-vendor run with a Claude `reviewer` subagent scoped to just
+   the current story for the fair per-increment verdict.
 5. **Release (on request).** Before dispatching, surface the
    release-strategy choices to the human as explicit questions — target
    version (and whether interim minors roll up), commit granularity, and
@@ -132,6 +144,14 @@ Every subagent prompt must contain:
   exits. If a subagent's remaining work is only self-verification of
   already-landed changes, say so, so the human knows a stall is safe to
   interrupt.
+- A background job does NOT survive a session boundary. A handoff must never
+  depend on an in-flight background dispatch's output existing: either block
+  for the result and write it to disk *before* writing the handoff, or state
+  in "Next steps" that the job was lost at the boundary and the resumer must
+  re-run it. Never write "read `<file>.md` first" for a file a pending
+  background job was still producing when the handoff was written. (007's US3
+  r3 review was kicked off at a handoff boundary, did not survive the session,
+  and had to be re-run.)
 
 ## Out of scope
 

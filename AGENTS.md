@@ -147,6 +147,11 @@ Principles:
 3. **Resume from disk.** A fresh session starts by reading
    `docs/work/<task>/handoff.md` plus the phase artifacts — never by
    replaying old conversation history.
+4. **In-flight ≠ on-disk.** Background jobs die at the session boundary. Only
+   a file already written to `docs/work/<task>/` counts as a checkpoint; a
+   pending background result never does. A handoff must not point the resumer
+   at a file an in-flight background job was still producing — block for it
+   first, or tell the resumer to re-run it.
 
 ### Quality gates (hard rules)
 
