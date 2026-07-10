@@ -34,8 +34,8 @@ param namePrefix string = 'jobagent'
 // full 13-char uniqueString suffix always fit in 24.
 var sanitizedPrefix = take(toLower(replace(namePrefix, '-', '')), 7)
 
-@description('Cron schedule (UTC) for the Container Apps Job, three ticks ~20 min apart.')
-param cronExpression string = '0,20,40 11 * * *'
+@description('Cron schedule (UTC) for the Container Apps Job, three ticks after local midnight (R2).')
+param cronExpression string = '0 8,10,12 * * *'
 
 @description('IANA timezone passed through to the app as JOBAGENT_TZ for digest-date computation.')
 param tz string = 'America/Los_Angeles'
@@ -67,8 +67,8 @@ param imageTag string = 'latest'
 @description('Container image repository reference, without tag.')
 param imageRepository string = 'ghcr.io/ctwarrick/job-agent'
 
-@description('Replica timeout in seconds for the job (~900s per contract).')
-param replicaTimeoutSeconds int = 900
+@description('Replica timeout in seconds for the job (2h overnight window, US1 007-overnight-scale).')
+param replicaTimeoutSeconds int = 7200
 
 @description('Scoring model passed through as JOBAGENT_MODEL; the cost dial.')
 param model string = 'claude-sonnet-4-6'
@@ -409,6 +409,12 @@ resource job 'Microsoft.App/jobs@2024-03-01' = {
             {
               name: 'JOBAGENT_RETENTION_DAYS'
               value: string(retentionDays)
+            }
+            {
+              // Single source of truth: the app validates against the exact
+              // deadline the platform enforces (contracts/runtime-config.md).
+              name: 'JOBAGENT_EXECUTION_WINDOW_SECONDS'
+              value: string(replicaTimeoutSeconds)
             }
           ]
           volumeMounts: [

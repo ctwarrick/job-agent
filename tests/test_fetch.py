@@ -1,3 +1,5 @@
+import pytest
+
 from job_agent import fetch, registry
 from job_agent.resilient import SourceResult
 
@@ -237,3 +239,26 @@ def test_cli_discards_return_value(monkeypatch) -> None:
         fetch, "main", lambda: ([{"source": "x", "company_slug": "y", "error": "z"}], [])
     )
     assert fetch._cli() is None
+
+
+# --- config getter fail-loud (FR-004/FR-010) --------------------------------
+# execution_window_seconds() has no code default: unset must fail loud, and a
+# non-positive value must raise via the shared _positive_int_env parse path.
+
+
+def test_execution_window_seconds_unset_fails_loud(monkeypatch) -> None:
+    """FR-004: the window is required with no code default -- an unset var
+    exits non-zero rather than silently assuming a window the platform never
+    honors (Principle V)."""
+    monkeypatch.delenv("JOBAGENT_EXECUTION_WINDOW_SECONDS", raising=False)
+    with pytest.raises(SystemExit) as exc_info:
+        fetch.execution_window_seconds()
+    assert "JOBAGENT_EXECUTION_WINDOW_SECONDS" in str(exc_info.value.code)
+
+
+def test_execution_window_seconds_non_positive_raises(monkeypatch) -> None:
+    """FR-010: a set-but-non-positive window is invalid config -- it raises via
+    the same _positive_int_env validator the other getters use."""
+    monkeypatch.setenv("JOBAGENT_EXECUTION_WINDOW_SECONDS", "0")
+    with pytest.raises(ValueError):
+        fetch.execution_window_seconds()

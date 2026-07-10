@@ -22,6 +22,7 @@ latter surfaced as the digest's degraded category (FR-014).
 
 from __future__ import annotations
 
+import os
 import sys
 
 from . import resilient, store
@@ -44,6 +45,71 @@ ADAPTERS = {
     "icims": icims,
     "talemetry": talemetry,
 }
+
+
+def fetch_concurrency() -> int:
+    """Max number of sources fetched in parallel.
+
+    Returns:
+        `JOBAGENT_FETCH_CONCURRENCY` (default 8).
+
+    Raises:
+        ValueError: If set but not a positive integer.
+    """
+    return resilient._positive_int_env("JOBAGENT_FETCH_CONCURRENCY", 8)
+
+
+def fetch_budget_seconds() -> int:
+    """Wall-clock budget, in seconds, for the whole fetch stage.
+
+    Returns:
+        `JOBAGENT_FETCH_BUDGET_SECONDS` (default 5400).
+
+    Raises:
+        ValueError: If set but not a positive integer.
+    """
+    return resilient._positive_int_env("JOBAGENT_FETCH_BUDGET_SECONDS", 5400)
+
+
+def score_digest_headroom_seconds() -> int:
+    """Wall-clock headroom, in seconds, reserved for score + digest.
+
+    Returns:
+        `JOBAGENT_SCORE_DIGEST_HEADROOM_SECONDS` (default 1800).
+
+    Raises:
+        ValueError: If set but not a positive integer.
+    """
+    return resilient._positive_int_env("JOBAGENT_SCORE_DIGEST_HEADROOM_SECONDS", 1800)
+
+
+def execution_window_seconds() -> int:
+    """Total wall-clock window, in seconds, the platform allows the run.
+
+    Required, with no code default: production Bicep always sets
+    `JOBAGENT_EXECUTION_WINDOW_SECONDS` to the same value it passes to the
+    platform as the replica timeout, so the app validates against the exact
+    deadline the platform enforces (single source of truth). An unset value
+    means either a misconfigured deployment or a dev run that must opt in
+    explicitly -- both should fail loud rather than silently picking a
+    window the platform doesn't actually honor.
+
+    Returns:
+        `JOBAGENT_EXECUTION_WINDOW_SECONDS`.
+
+    Raises:
+        SystemExit: If the variable is unset.
+        ValueError: If set but not a positive integer.
+    """
+    if "JOBAGENT_EXECUTION_WINDOW_SECONDS" not in os.environ:
+        sys.exit(
+            "config: JOBAGENT_EXECUTION_WINDOW_SECONDS is required (no code default) -- "
+            "set it explicitly, or deploy via infra/main.bicep which pins it to "
+            "replicaTimeoutSeconds"
+        )
+    # Default is unreachable (env presence checked above); kept for a single
+    # fail-loud parse path shared with the other getters.
+    return resilient._positive_int_env("JOBAGENT_EXECUTION_WINDOW_SECONDS", 0)
 
 
 def main() -> tuple[list[dict], list[dict]]:

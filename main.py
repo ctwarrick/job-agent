@@ -54,6 +54,16 @@ import sys
 
 from job_agent import digest, fetch, score, store
 
+# Imported by name, not via the `fetch` module reference: tests monkeypatch
+# `main.fetch` wholesale to a stage stub (see tests/test_main.py
+# `_patch_stages`), which must not shadow the startup config getters used
+# before any stage runs.
+from job_agent.fetch import (
+    execution_window_seconds,
+    fetch_budget_seconds,
+    score_digest_headroom_seconds,
+)
+
 # Attempts at/after this count are the day's last scheduled tick
 # (data-model.md: "one run + up to 2 retries" -> attempts 1, 2, 3).
 FINAL_ATTEMPT = 3
@@ -93,6 +103,19 @@ def _degradation_summary(
 
 
 def main() -> None:
+    # FR-004 startup coherence check, before any external effect (store.init()
+    # included): if the fetch budget plus score/digest headroom can't fit the
+    # platform-enforced execution window, fail loud here rather than letting
+    # the platform kill an in-flight run with no diagnosable trace.
+    fetch_budget = fetch_budget_seconds()
+    headroom = score_digest_headroom_seconds()
+    window = execution_window_seconds()
+    if fetch_budget + headroom > window:
+        sys.exit(
+            f"config: fetch budget ({fetch_budget}s) + score/digest headroom "
+            f"({headroom}s) exceeds execution window ({window}s)"
+        )
+
     store.init()  # ensure schema exists before any run-tracking query
     digest_date = store.digest_date()
     force = os.environ.get("JOBAGENT_FORCE") == "1"

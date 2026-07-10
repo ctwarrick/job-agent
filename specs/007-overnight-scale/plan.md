@@ -54,10 +54,16 @@ replica retries).
 sequential (SC-004); full run completes inside the 90-min fetch budget on a healthy night
 with ≥30-min headroom for score/digest (SC-001/SC-002).
 
-**Constraints**: 2-hour execution window; three attempts at ~00:00/02:00/04:00 local, all
-after local midnight (preserve run-start `digest_date`); last attempt done before 06:00
-local (SC-001). Concurrent writes to one SQLite file must be serialized. Cron is
-UTC-fixed — must stay after local midnight across DST (research R2).
+**Constraints**: 2-hour execution window; three attempts at 00:00/02:00/04:00 PST
+(01:00/03:00/05:00 PDT) via fixed UTC cron `0 8,10,12`, all after local midnight in both DST
+states (preserve run-start `digest_date`). A fixed-UTC schedule cannot also keep the final
+attempt strictly ≤ 06:00 local in both zones (research R2 proves the constraints are
+over-determined); we prioritize the after-midnight/`digest_date` invariant and accept the
+rare PDT-edge slip (third attempt can reach 07:00 PDT only if attempts 1–2 both failed *and*
+the third runs > 1h — the missed-deadline alert tolerates a one-eval slip). Attempt spacing
+equals the window (2h); the exact boundary is backstopped by the existing in-flight startup
+check (spec assumption), with spacing an efficiency measure on top. Concurrent writes to one
+SQLite file must be serialized.
 
 **Scale/Scope**: Design target ~50 boards (today 35: 6 Greenhouse, 3 Lever, 26 Workday).
 The bottleneck is Workday per-posting detail fetching, not raw board count.

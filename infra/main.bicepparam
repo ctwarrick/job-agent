@@ -24,19 +24,18 @@ using 'main.bicep'
 
 param location = 'westus2'
 param namePrefix = 'jobagent'
-// Three attempts hourly at 10:00/11:00/12:00 UTC. Hourly spacing (60 min)
-// exceeds replicaTimeout (2700s = 45 min) so retries never overlap into a
-// startup-check no-op, and all three fire after local midnight in both PST and
-// PDT (keeping the run-start digest_date correct year-round). The last attempt
-// finishes by ~05:45 local, before the 06:00 delivery deadline. Stopgap for the
-// enlarged registry pending 007-overnight-scale; see that spec for the full
-// 2-hour-window schedule.
-param cronExpression = '0 10,11,12 * * *'
-// Raised from the 900s default: the enlarged (Workday-heavy) registry needs
-// ~20-25 min for a full sequential fetch, which exceeded the old 15-min window
-// and caused every 2026-07-09 attempt to be DeadlineExceeded. 45 min gives ~2x
-// headroom while keeping the final attempt before the deadline.
-param replicaTimeoutSeconds = 2700
+// Three attempts at 08:00/10:00/12:00 UTC, 2h apart == the 2h
+// replicaTimeoutSeconds (7200s) window: the exact boundary is backstopped by
+// the existing in-flight startup-check no-op (research R2), not by spacing
+// headroom. All three fire after local midnight in both PST and PDT (keeping
+// the run-start digest_date correct year-round; research R2, resolved).
+// Supersedes the live v2.4.2 stopgap (`0 10,11,12`, 2700s).
+param cronExpression = '0 8,10,12 * * *'
+// 2-hour overnight window (007-overnight-scale US1): the enlarged
+// (Workday-heavy) registry's full sequential fetch plus score/digest
+// headroom needs more than the prior 45-min stopgap. The startup coherence
+// check (FR-004) fails loud if the fetch budget + headroom can't fit this.
+param replicaTimeoutSeconds = 7200
 param tz = 'America/Los_Angeles'
 param maxPostingsPerRun = 200
 param maxCostPerRun = '5.00'

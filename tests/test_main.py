@@ -27,6 +27,18 @@ from job_agent import digest, store
 DIGEST_DATE = "2026-06-11"
 
 
+@pytest.fixture(autouse=True)
+def _execution_window(monkeypatch) -> None:
+    """`JOBAGENT_EXECUTION_WINDOW_SECONDS` is now required (no code default,
+    contracts/runtime-config.md). Default it to a value coherent with the
+    fetch-budget/headroom defaults (5400 + 1800 = 7200) so tests that don't
+    care about the startup coherence check aren't tripped by it. The one test
+    that does care (test_startup_coherence_check_...) overrides this env var
+    itself, and monkeypatch.setenv there wins over this fixture's earlier
+    setenv within the same test."""
+    monkeypatch.setenv("JOBAGENT_EXECUTION_WINDOW_SECONDS", "7200")
+
+
 def _setup_db(tmp_path: Path, monkeypatch) -> Path:
     db = tmp_path / "jobs.db"
     monkeypatch.chdir(tmp_path)
@@ -497,6 +509,39 @@ def test_successful_run_invokes_purge_stage(tmp_path: Path, monkeypatch) -> None
     _run_main_allow_exit(monkeypatch)
 
     assert purge_calls, "purge stage should run on a successful pipeline run"
+
+
+# --- startup coherence check (FR-004) ---------------------------------------
+
+
+def test_startup_coherence_check_exits_before_any_stage_runs(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """FR-004: fetch budget + score/digest headroom exceeding the execution
+    window must fail loud at startup (SystemExit naming all three values)
+    before store.init()/fetch/score/digest have any external effect."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("JOBAGENT_DATA_DIR", raising=False)
+    monkeypatch.delenv("JOBAGENT_FORCE", raising=False)
+    monkeypatch.setenv("JOBAGENT_TZ", "UTC")
+    # 5400 + 1800 = 7200 > 3600 -- deliberately incoherent (contracts/runtime-config.md)
+    monkeypatch.setenv("JOBAGENT_FETCH_BUDGET_SECONDS", "5400")
+    monkeypatch.setenv("JOBAGENT_SCORE_DIGEST_HEADROOM_SECONDS", "1800")
+    monkeypatch.setenv("JOBAGENT_EXECUTION_WINDOW_SECONDS", "3600")
+    calls = _patch_stages(monkeypatch)
+
+    with pytest.raises(SystemExit) as exc_info:
+        main.main()
+
+    assert exc_info.value.code, "exit code must be non-zero/truthy"
+    message = str(exc_info.value.code)
+    assert "5400" in message
+    assert "1800" in message
+    assert "3600" in message
+    assert calls == [], "fetch/score/digest must not run when config is incoherent"
+    # The check must fire before store.init() has any external effect: no schema
+    # file may exist anywhere under the run's cwd (FR-004 "before any external effect").
+    assert not list(tmp_path.rglob("jobs.db")), "no db may be created before the check exits"
 
 
 def test_purge_failure_does_not_fail_the_run(tmp_path: Path, monkeypatch, capsys) -> None:
