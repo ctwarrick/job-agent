@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it reaches 1.0.0. Before 1.0.0, minor versions may include breaking changes.
 
+## [2.4.2] - 2026-07-09
+
+### Fixed
+
+- **Overnight job missed its window**: all three scheduled attempts of
+  `jobagent-job` on 2026-07-09 failed with `DeadlineExceeded` — the registry
+  has grown to ~35 Workday-heavy boards, and a full sequential fetch now
+  takes ~20-25 min, exceeding the old 15-min `replicaTimeout` (900s,
+  `main.bicep`'s default). No digest was delivered and the missed-deadline
+  alert fired. `infra/main.bicepparam` now sets `param replicaTimeoutSeconds
+  = 2700` (45 min, ~2x the observed fetch time) and moves `cronExpression`
+  from `'0,20,40 11 * * *'` to `'0 10,11,12 * * *'` (three attempts hourly
+  at 10:00/11:00/12:00 UTC) so retries no longer overlap into a
+  startup-check no-op, all three still fire after local midnight in both
+  PST and PDT, and the last attempt finishes before the 06:00 delivery
+  deadline. The live Azure job was already updated via `az containerapp job
+  update` to match on the night of the incident; this release records the
+  IaC change. This is a stopgap for the enlarged registry; the permanent
+  fix (a longer window plus parallel fetch and a fetch-stage budget) is
+  spec'd separately in `specs/007-overnight-scale/spec.md`.
+
 ## [2.4.1] - 2026-07-08
 
 ### Fixed
