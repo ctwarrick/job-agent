@@ -22,13 +22,15 @@ latter surfaced as the digest's degraded category (FR-014).
 
 from __future__ import annotations
 
+import concurrent.futures
 import os
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 from typing import Callable
 
-from . import resilient, store
+from . import registry, resilient, store
 from .adapters import greenhouse, icims, lever, talemetry, workday
 from .filter import load_criteria
 from .registry import load_registry
@@ -48,6 +50,40 @@ ADAPTERS = {
     "icims": icims,
     "talemetry": talemetry,
 }
+
+# Serializes every store write -- and each board's summary log line -- across
+# fetch worker threads. store.connect() uses SQLite's default rollback journal
+# with no busy timeout, so two connections writing at once would raise
+# "database is locked"; one module-level lock keeps a single writer at a time
+# (research R1) and keeps each per-source summary line intact in the otherwise
+# interleaved stdout. The adapter/network call runs OUTSIDE this lock -- that is
+# where board-level parallelism comes from.
+_STORE_LOCK = threading.Lock()
+
+
+class _LockingStore:
+    """A ``store`` proxy that runs each store call under ``_STORE_LOCK``.
+
+    Passed to ``resilient.run_source`` as ``store_`` so a two-phase board's
+    slow listing/description fetches parallelize with other boards while every
+    SQLite op it makes (reads and writes -- the rollback journal has no busy
+    timeout, so a read overlapping another connection's write also errors) is
+    serialized to one accessor at a time. This keeps the single-writer
+    invariant without holding the lock across the whole board (contract: only
+    the store ops are serialized, not the fetch).
+    """
+
+    def __getattr__(self, name: str) -> Callable[..., object]:
+        target = getattr(store, name)
+
+        def locked(*args: object, **kwargs: object) -> object:
+            with _STORE_LOCK:
+                return target(*args, **kwargs)
+
+        return locked
+
+
+_LOCKING_STORE = _LockingStore()
 
 
 def fetch_concurrency() -> int:
@@ -142,9 +178,26 @@ def main(clock: Callable[[], float] = time.monotonic) -> tuple[list[dict], list[
     SC-003). A dispatched resilient board is given `stage_deadline` so its own
     per-source deadline is clamped to whichever is nearer (FR-009).
 
-    The deterministic filter criteria are loaded lazily, only when a resilient
-    source is actually dispatched, so a run with no two-phase sources needs no
-    filter.toml; a missing/invalid criteria file then fails loud (Principle V).
+    Up to `fetch_concurrency()` boards fetch in parallel through a bounded
+    `ThreadPoolExecutor` (FR-007/R1): the adapter/network call runs off-lock,
+    while every store write and the per-source summary log line are serialized
+    under `_STORE_LOCK` (one SQLite writer, attributable logs -- FR-008). A
+    two-phase (resilient) board's `run_source` also runs off-lock, given a
+    `_LockingStore` proxy so only its individual store ops serialize -- so
+    resilient boards parallelize like single-request ones (the contract
+    serializes the store ops, not the whole board). The budget check runs
+    before each submission, and at most `fetch_concurrency()` boards are in
+    flight at once, so `concurrency == 1` degenerates to today's strict
+    submit-one/wait-one sequential path and ordering exactly. One board raising
+    is contained to its own `failed` record and never blocks the others
+    (FR-008).
+
+    The deterministic filter criteria are loaded once up front, but only when
+    the run will actually dispatch a resilient source (a resilient vendor with
+    an adapter), so a run with no dispatchable two-phase source needs no
+    filter.toml. The load happens on the orchestrating thread before any worker
+    starts, so a missing/invalid criteria file fails loud (Principle V) instead
+    of being swallowed by a worker's per-board containment.
 
     Args:
         clock: Monotonic clock used for the stage budget; overridable for
@@ -161,7 +214,6 @@ def main(clock: Callable[[], float] = time.monotonic) -> tuple[list[dict], list[
     total_new = 0
     failed: list[dict] = []
     partial: list[dict] = []
-    criteria = None
 
     sources = load_registry()
     # Registry uniqueness is (vendor, slug), not (vendor, company): a company
@@ -177,79 +229,150 @@ def main(clock: Callable[[], float] = time.monotonic) -> tuple[list[dict], list[
     rank = {key: i for i, key in enumerate(ordered_keys)}
     ordered_sources = sorted(sources, key=lambda s: rank[(s.vendor, s.company)])
     stage_deadline = clock() + fetch_budget_seconds()
+    concurrency = fetch_concurrency()
 
-    for i, source in enumerate(ordered_sources):
-        if clock() > stage_deadline:
-            for deferred in ordered_sources[i:]:
-                partial.append(
-                    {
-                        "source": deferred.vendor,
-                        "company_slug": deferred.slug,
-                        "reason": "budget_deferred",
-                    }
-                )
-            break
+    # Load filter criteria once, on this thread, before any worker starts --
+    # only if a dispatchable resilient source exists (a resilient vendor with
+    # an adapter; an unknown vendor is degradation, not a criteria trigger).
+    # Loading here, off the worker path, keeps a missing/invalid filter.toml
+    # fail-loud (Principle V) instead of being caught by per-board containment.
+    needs_criteria = any(
+        s.vendor in RESILIENT_VENDORS and ADAPTERS.get(s.vendor) is not None
+        for s in ordered_sources
+    )
+    criteria = load_criteria() if needs_criteria else None
 
+    def dispatch(source: registry.Source) -> None:
+        """Fetch one board in a worker thread, recording its outcome.
+
+        The adapter/network call (and a resilient board's `run_source`) runs
+        off-lock; store writes and the summary log line acquire `_STORE_LOCK`.
+        Any raise is contained to this board's `failed` record so it can never
+        kill a sibling board (FR-008).
+        """
+        nonlocal total_new
         adapter = ADAPTERS.get(source.vendor)
         if adapter is None:
             error = f"no adapter for vendor {source.vendor!r}"
-            print(f"  ! {error} (slug {source.slug})", file=sys.stderr)
-            failed.append({"source": source.vendor, "company_slug": source.slug, "error": error})
-            continue
-        if source.vendor in RESILIENT_VENDORS:
-            if criteria is None:
-                criteria = load_criteria()
-            result = resilient.run_source(
-                adapter, source, criteria=criteria, stage_deadline=stage_deadline
-            )
-            if result.error:
-                print(f"  ! {source.vendor}/{source.slug} failed: {result.error}", file=sys.stderr)
+            with _STORE_LOCK:
+                print(f"  ! {error} (slug {source.slug})", file=sys.stderr)
                 failed.append(
-                    {
-                        "source": result.source,
-                        "company_slug": result.company_slug,
-                        "error": result.error,
-                    }
+                    {"source": source.vendor, "company_slug": source.slug, "error": error}
                 )
-                continue
-            total_new += result.new
-            if result.skipped or result.truncated or result.persistent:
-                partial.append(
-                    {
-                        "source": result.source,
-                        "company_slug": result.company_slug,
-                        "new": result.new,
-                        "skipped": result.skipped,
-                        "truncated": result.truncated,
-                        "persistent": result.persistent,
-                    }
+            return
+        try:
+            if source.vendor in RESILIENT_VENDORS:
+                # run_source does the two-phase fetch off-lock; the _LockingStore
+                # proxy serializes only its individual SQLite ops, so resilient
+                # boards parallelize. Only the shared-state result handling and
+                # the summary line are held under the lock.
+                result = resilient.run_source(
+                    adapter,
+                    source,
+                    criteria=criteria,
+                    stage_deadline=stage_deadline,
+                    store_=_LOCKING_STORE,
                 )
-            flags = []
-            if result.truncated:
-                flags.append("truncated")
-            if result.skipped:
-                flags.append(f"{result.skipped} skipped")
-            if result.persistent:
-                flags.append("persistent")
-            note = f" ({', '.join(flags)})" if flags else ""
-            print(f"  {source.vendor:12} {source.slug:20} {result.new:4} new{note}")
-        else:
-            try:
+                with _STORE_LOCK:
+                    if result.error:
+                        print(
+                            f"  ! {source.vendor}/{source.slug} failed: {result.error}",
+                            file=sys.stderr,
+                        )
+                        failed.append(
+                            {
+                                "source": result.source,
+                                "company_slug": result.company_slug,
+                                "error": result.error,
+                            }
+                        )
+                        return
+                    total_new += result.new
+                    if result.skipped or result.truncated or result.persistent:
+                        partial.append(
+                            {
+                                "source": result.source,
+                                "company_slug": result.company_slug,
+                                "new": result.new,
+                                "skipped": result.skipped,
+                                "truncated": result.truncated,
+                                "persistent": result.persistent,
+                            }
+                        )
+                    flags = []
+                    if result.truncated:
+                        flags.append("truncated")
+                    if result.skipped:
+                        flags.append(f"{result.skipped} skipped")
+                    if result.persistent:
+                        flags.append("persistent")
+                    note = f" ({', '.join(flags)})" if flags else ""
+                    print(f"  {source.vendor:12} {source.slug:20} {result.new:4} new{note}")
+            else:
                 postings = adapter(source.slug, company=source.company)
-                added = store.upsert_postings(postings)
-                total_new += added
-                store.mark_converged(
-                    source.vendor, source.company, datetime.now(timezone.utc).isoformat()
-                )
-                print(
-                    f"  {source.vendor:12} {source.slug:20} "
-                    f"{len(postings):4} fetched, {added:4} new"
-                )
-            except Exception as e:  # one bad board shouldn't kill the run
+                with _STORE_LOCK:
+                    added = store.upsert_postings(postings)
+                    total_new += added
+                    store.mark_converged(
+                        source.vendor, source.company, datetime.now(timezone.utc).isoformat()
+                    )
+                    print(
+                        f"  {source.vendor:12} {source.slug:20} "
+                        f"{len(postings):4} fetched, {added:4} new"
+                    )
+        except Exception as e:  # one bad board shouldn't kill the run (FR-008)
+            with _STORE_LOCK:
                 print(f"  ! {source.vendor}/{source.slug} failed: {e}", file=sys.stderr)
                 failed.append(
                     {"source": source.vendor, "company_slug": source.slug, "error": str(e)}
                 )
+
+    # Bounded-window dispatch that honors the submission-stop: keep at most
+    # `concurrency` boards in flight, and check the stage budget before
+    # submitting each next board. At `concurrency == 1` this is strict
+    # submit-one/wait-one, reproducing the sequential order and the budget's
+    # after-first-board clock behavior; boards past the budget are never
+    # submitted and fall through to the deferred sweep below.
+    next_index = 0
+    stopped = False
+    in_flight: dict[concurrent.futures.Future, registry.Source] = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as executor:
+
+        def fill() -> None:
+            nonlocal next_index, stopped
+            while len(in_flight) < concurrency and next_index < len(ordered_sources):
+                if clock() > stage_deadline:
+                    stopped = True
+                    return
+                source = ordered_sources[next_index]
+                next_index += 1
+                in_flight[executor.submit(dispatch, source)] = source
+
+        fill()
+        while in_flight:
+            done, _ = concurrent.futures.wait(
+                in_flight, return_when=concurrent.futures.FIRST_COMPLETED
+            )
+            for fut in done:
+                del in_flight[fut]
+                # dispatch() contains every ordinary per-board error as a
+                # `failed` record, so result() normally returns None. Reading
+                # it means anything that still escaped (a bug in the containment
+                # itself, or a BaseException) fails loud here instead of the run
+                # printing success with a source neither fetched nor recorded.
+                fut.result()
+            if not stopped:
+                fill()
+
+    for deferred in ordered_sources[next_index:]:
+        partial.append(
+            {
+                "source": deferred.vendor,
+                "company_slug": deferred.slug,
+                "reason": "budget_deferred",
+            }
+        )
+
     print(f"\nDone. {total_new} new postings added.")
     return failed, partial
 

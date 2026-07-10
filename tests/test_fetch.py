@@ -1,3 +1,5 @@
+import re
+import time
 from pathlib import Path
 
 import pytest
@@ -276,7 +278,10 @@ def test_fetch_dispatches_in_sources_by_recency_order(monkeypatch) -> None:
     """FR-006: dispatch follows store.sources_by_recency's returned order,
     not registry.toml's file order -- proves fetch builds (vendor, company)
     keys from the registry and consumes the reordered result, rather than
-    just iterating load_registry() directly."""
+    just iterating load_registry() directly. Pinned to concurrency=1 (007
+    US3): this asserts an exact adapter call ORDER, which is only
+    deterministic when boards are not dispatched concurrently."""
+    monkeypatch.setenv("JOBAGENT_FETCH_CONCURRENCY", "1")
     monkeypatch.setattr(fetch.store, "init", lambda *a, **k: None)
     registry_order = [
         registry.Source(vendor="greenhouse", slug="a", company="a"),
@@ -350,9 +355,13 @@ def test_fetch_stops_submitting_new_boards_past_stage_budget(tmp_path: Path, mon
     partial_sources as {source, company_slug, reason='budget_deferred'} --
     the single representation, no third return value. A deferred board's
     last_converged_at is NOT advanced (no starvation), while the dispatched
-    board's IS (extends 006's mark_converged to single-request vendors)."""
+    board's IS (extends 006's mark_converged to single-request vendors).
+    Pinned to concurrency=1 (007 US3): fake_clock only starts returning 100
+    after the first board has run, which is only deterministic when exactly
+    one board is in flight at a time."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("JOBAGENT_DATA_DIR", raising=False)
+    monkeypatch.setenv("JOBAGENT_FETCH_CONCURRENCY", "1")
 
     boards = [
         registry.Source(vendor="greenhouse", slug=f"co{i}", company=f"co{i}") for i in range(5)
@@ -532,6 +541,308 @@ def test_resilient_run_source_clamps_effective_deadline_to_stage_remaining(
 
     assert result.truncated is True
     assert result.remaining == 18
+
+
+# --- board-level concurrency (007 US3, T018-T020) ----------------------------
+# contracts/fetch-stage.md "Concurrency", data-model.md "Concurrency-safety
+# invariants", research.md R1, quickstart.md Scenarios 1-2. The dispatch loop
+# is fully sequential today: JOBAGENT_FETCH_CONCURRENCY is read by
+# fetch_concurrency() but never consulted by main(), so every assertion below
+# that depends on real parallel execution is red for that single reason.
+
+
+def test_concurrency_one_reproduces_sequential_dispatch_order(monkeypatch) -> None:
+    """Regression oracle (007 US3): JOBAGENT_FETCH_CONCURRENCY=1 dispatches
+    adapters in exactly recency order, matching today's sequential path --
+    the A/B baseline every other concurrency assertion in this file compares
+    against (contracts/fetch-stage.md, research.md R1). This already holds
+    under today's fully-sequential loop and must keep holding once the
+    ThreadPoolExecutor lands."""
+    monkeypatch.setenv("JOBAGENT_FETCH_CONCURRENCY", "1")
+    monkeypatch.setattr(fetch.store, "init", lambda *a, **k: None)
+    ordered = [
+        registry.Source(vendor="greenhouse", slug="c", company="c"),
+        registry.Source(vendor="greenhouse", slug="a", company="a"),
+        registry.Source(vendor="greenhouse", slug="b", company="b"),
+    ]
+    monkeypatch.setattr(fetch, "load_registry", lambda *a, **k: ordered)
+    monkeypatch.setattr(fetch.store, "sources_by_recency", lambda keys, path=None: keys)
+    monkeypatch.setattr(fetch.store, "upsert_postings", lambda *a, **k: 0)
+    monkeypatch.setattr(fetch.store, "mark_converged", lambda *a, **k: None)
+
+    dispatched: list[str] = []
+
+    def fetch_fn(slug, *, company=None):
+        dispatched.append(slug)
+        return []
+
+    monkeypatch.setattr(fetch, "ADAPTERS", {"greenhouse": fetch_fn})
+
+    fetch.main()
+
+    assert dispatched == ["c", "a", "b"]
+
+
+def test_concurrency_equivalence_and_speedup(tmp_path: Path, monkeypatch) -> None:
+    """T018/Scenario 1/SC-004: for the same stubbed latency boards,
+    concurrency=1 and concurrency=8 store identical postings and identical
+    per-source outcomes (compared order-insensitively, since equivalence
+    ACROSS concurrency is the point), and concurrency=8 is at least 3x
+    faster in real wall-clock time. Red reason: main() doesn't consult
+    fetch_concurrency() yet, so both runs dispatch one board at a time and
+    take ~equal wall-clock -- no speedup."""
+    n = 8
+    latency = 0.05  # 8 * 0.05s sequential = ~0.4s; keeps the whole test <1s.
+    boards = [
+        registry.Source(vendor="greenhouse", slug=f"co{i}", company=f"co{i}") for i in range(n)
+    ]
+
+    def run(concurrency: int, workdir: Path) -> tuple[float, list[dict], list[dict], set[str]]:
+        workdir.mkdir()
+        monkeypatch.chdir(workdir)
+        monkeypatch.delenv("JOBAGENT_DATA_DIR", raising=False)
+        monkeypatch.setenv("JOBAGENT_FETCH_CONCURRENCY", str(concurrency))
+        monkeypatch.setattr(fetch, "load_registry", lambda *a, **k: boards)
+        monkeypatch.setattr(fetch.store, "sources_by_recency", lambda keys, path=None: keys)
+
+        def fetch_fn(slug, *, company=None):
+            time.sleep(latency)
+            return [_greenhouse_posting(slug)]
+
+        monkeypatch.setattr(fetch, "ADAPTERS", {"greenhouse": fetch_fn})
+
+        start = time.monotonic()
+        failed, partial = fetch.main()
+        elapsed = time.monotonic() - start
+        with fetch.store.connect() as conn:
+            fps = {r["fingerprint"] for r in conn.execute("SELECT fingerprint FROM postings")}
+        return elapsed, failed, partial, fps
+
+    seq_elapsed, seq_failed, seq_partial, seq_fps = run(1, tmp_path / "seq")
+    par_elapsed, par_failed, par_partial, par_fps = run(8, tmp_path / "par")
+
+    def _key(rec: dict) -> tuple:
+        return (rec.get("source"), rec.get("company_slug"))
+
+    assert sorted(seq_failed, key=_key) == sorted(par_failed, key=_key)
+    assert sorted(seq_partial, key=_key) == sorted(par_partial, key=_key)
+    assert seq_fps == par_fps
+    assert len(seq_fps) == n  # sanity: the stub actually stored postings
+
+    # n=8 boards * 0.05s latency, sequential -> ~0.4s. Fully parallel at
+    # concurrency=8 -> ~1 latency + overhead, generously well under a third
+    # of that. Generous 3x margin per SC-004.
+    assert par_elapsed * 3 <= seq_elapsed, (
+        f"expected >=3x speedup at concurrency=8, got seq={seq_elapsed:.3f}s "
+        f"par={par_elapsed:.3f}s"
+    )
+
+
+def test_fetch_contains_failing_board_without_blocking_others(tmp_path: Path, monkeypatch) -> None:
+    """T019/Scenario 2/FR-008: one stubbed board raises; it lands in `failed`
+    while every other board's postings are still stored (failure
+    containment). Also pins that the bad board's run window OVERLAPS in
+    wall-clock time with at least one good board's -- true parallel
+    execution, not accidental containment via strict one-at-a-time
+    dispatch. Red reason: today's sequential loop never overlaps two calls,
+    so this fails even though plain containment already holds."""
+    n = 5
+    latency = 0.05
+    bad_slug = "co2"
+    boards = [
+        registry.Source(vendor="greenhouse", slug=f"co{i}", company=f"co{i}") for i in range(n)
+    ]
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("JOBAGENT_DATA_DIR", raising=False)
+    monkeypatch.setenv("JOBAGENT_FETCH_CONCURRENCY", "8")
+    monkeypatch.setattr(fetch, "load_registry", lambda *a, **k: boards)
+    monkeypatch.setattr(fetch.store, "sources_by_recency", lambda keys, path=None: keys)
+
+    windows: list[tuple[str, float, float]] = []
+
+    def fetch_fn(slug, *, company=None):
+        start = time.monotonic()
+        time.sleep(latency)
+        end = time.monotonic()
+        windows.append((slug, start, end))  # recorded on both the good and bad path
+        if slug == bad_slug:
+            raise RuntimeError("board down")
+        return [_greenhouse_posting(slug)]
+
+    monkeypatch.setattr(fetch, "ADAPTERS", {"greenhouse": fetch_fn})
+
+    failed, partial = fetch.main()
+
+    bad_records = [r for r in failed + partial if r.get("company_slug") == bad_slug]
+    assert len(bad_records) == 1
+    assert "board down" in bad_records[0].get("error", "")
+
+    good_slugs = {f"co{i}" for i in range(n)} - {bad_slug}
+    with fetch.store.connect() as conn:
+        stored = {r["company"] for r in conn.execute("SELECT company FROM postings")}
+    assert stored == good_slugs
+
+    by_slug = {slug: (start, end) for slug, start, end in windows}
+    bad_start, bad_end = by_slug[bad_slug]
+    overlaps = any(
+        start < bad_end and bad_start < end
+        for slug, (start, end) in by_slug.items()
+        if slug != bad_slug
+    )
+    assert overlaps, "expected the bad board's window to overlap a good board's run"
+
+
+def test_fetch_concurrent_integrity_and_attributable_logging(
+    tmp_path: Path, monkeypatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """T020/FR-008: a concurrency=8 run stores the same fingerprint SET as a
+    concurrency=1 run over the same stubs (no loss/dup/corruption -- single-
+    writer lock), and every board's per-source summary log line is captured
+    intact in stdout (never split by interleaving). Also pins that at least
+    two boards' calls actually overlapped under concurrency=8 -- otherwise
+    the integrity/logging assertions would hold vacuously without ever
+    exercising the lock or interleaving. Red reason: today's sequential loop
+    never overlaps two calls."""
+    n = 6
+    latency = 0.05
+    boards = [
+        registry.Source(vendor="greenhouse", slug=f"co{i}", company=f"co{i}") for i in range(n)
+    ]
+
+    def run(concurrency: int, workdir: Path) -> tuple[set[str], list[tuple[str, float, float]]]:
+        workdir.mkdir()
+        monkeypatch.chdir(workdir)
+        monkeypatch.delenv("JOBAGENT_DATA_DIR", raising=False)
+        monkeypatch.setenv("JOBAGENT_FETCH_CONCURRENCY", str(concurrency))
+        monkeypatch.setattr(fetch, "load_registry", lambda *a, **k: boards)
+        monkeypatch.setattr(fetch.store, "sources_by_recency", lambda keys, path=None: keys)
+
+        windows: list[tuple[str, float, float]] = []
+
+        def fetch_fn(slug, *, company=None):
+            start = time.monotonic()
+            time.sleep(latency)
+            end = time.monotonic()
+            windows.append((slug, start, end))
+            return [_greenhouse_posting(slug)]
+
+        monkeypatch.setattr(fetch, "ADAPTERS", {"greenhouse": fetch_fn})
+        fetch.main()
+        with fetch.store.connect() as conn:
+            fps = {r["fingerprint"] for r in conn.execute("SELECT fingerprint FROM postings")}
+        return fps, windows
+
+    seq_fps, _ = run(1, tmp_path / "seq")
+    capsys.readouterr()  # discard the sequential run's stdout
+    par_fps, par_windows = run(8, tmp_path / "par")
+    out = capsys.readouterr().out
+
+    assert par_fps == seq_fps
+    assert len(par_fps) == n
+
+    for i in range(n):
+        pattern = re.compile(rf"greenhouse\s+co{i}\b.*\b1 fetched, *1 new")
+        matching = [line for line in out.splitlines() if pattern.search(line)]
+        assert len(matching) == 1, f"expected exactly one intact log line for co{i}"
+
+    overlaps = any(
+        a_start < b_end and b_start < a_end
+        for i, (_, a_start, a_end) in enumerate(par_windows)
+        for _, b_start, b_end in par_windows[i + 1 :]
+    )
+    assert overlaps, "expected at least two boards to run concurrently under concurrency=8"
+
+
+def test_resilient_boards_fetch_concurrently(monkeypatch) -> None:
+    """T021/FR-007: two-phase (resilient) boards must ALSO fetch in parallel,
+    not just single-request ones -- Workday-heavy registries are the scaling
+    target. run_source runs off the store lock (fetch passes it a _LockingStore
+    that serializes only its individual SQLite ops), so two resilient boards'
+    run windows overlap under concurrency=8. Red guard against a regression
+    where _STORE_LOCK is held across the whole run_source call: that serializes
+    resilient boards even though Greenhouse-only concurrency tests stay green,
+    so this test overlaps two run_source windows specifically."""
+    monkeypatch.setattr(fetch.store, "init", lambda *a, **k: None)
+    monkeypatch.setattr(fetch, "RESILIENT_VENDORS", {"workday"})
+    boards = [registry.Source(vendor="workday", slug=f"wd{i}", company=f"co{i}") for i in range(4)]
+    monkeypatch.setattr(fetch, "load_registry", lambda *a, **k: boards)
+    monkeypatch.setattr(fetch.store, "sources_by_recency", lambda keys, path=None: keys)
+    monkeypatch.setattr(fetch, "ADAPTERS", {"workday": object()})
+    monkeypatch.setattr(fetch, "load_criteria", lambda *a, **k: object())
+    monkeypatch.setenv("JOBAGENT_FETCH_CONCURRENCY", "8")
+
+    windows: list[tuple[str, float, float]] = []
+
+    def fake_run_source(adapter, source, *, criteria, stage_deadline=None, **kw):
+        start = time.monotonic()
+        time.sleep(0.05)
+        end = time.monotonic()
+        windows.append((source.slug, start, end))
+        return SourceResult("workday", source.slug, new=1)
+
+    monkeypatch.setattr(fetch.resilient, "run_source", fake_run_source)
+
+    fetch.main()
+
+    assert len(windows) == 4
+    overlaps = any(
+        a_start < b_end and b_start < a_end
+        for i, (_, a_start, a_end) in enumerate(windows)
+        for _, b_start, b_end in windows[i + 1 :]
+    )
+    assert overlaps, "expected two resilient boards' run_source windows to overlap"
+
+
+def test_missing_criteria_fails_loud_before_dispatch(monkeypatch) -> None:
+    """Principle V: a missing/invalid filter.toml must HALT the run (propagate
+    out of main), not be swallowed. Criteria load on the orchestrating thread
+    before any worker starts, so load_criteria() raising propagates -- rather
+    than being caught by a worker's per-board FR-008 containment and shipped as
+    a degraded digest. Only triggered when a resilient board will dispatch."""
+    monkeypatch.setattr(fetch.store, "init", lambda *a, **k: None)
+    monkeypatch.setattr(fetch, "RESILIENT_VENDORS", {"workday"})
+    monkeypatch.setattr(
+        fetch,
+        "load_registry",
+        lambda *a, **k: [registry.Source(vendor="workday", slug="wd", company="co")],
+    )
+    monkeypatch.setattr(fetch.store, "sources_by_recency", lambda keys, path=None: keys)
+    monkeypatch.setattr(fetch, "ADAPTERS", {"workday": object()})
+
+    def boom(*a, **k):
+        raise FileNotFoundError("filter.toml missing")
+
+    monkeypatch.setattr(fetch, "load_criteria", boom)
+
+    with pytest.raises(FileNotFoundError):
+        fetch.main()
+
+
+def test_worker_exception_escaping_containment_fails_loud(monkeypatch) -> None:
+    """The dispatch loop reads each completed future's result, so anything
+    that escapes dispatch()'s per-board `except Exception` (a bug in the
+    containment itself, or a BaseException) fails loud instead of the run
+    printing success with a board neither fetched nor recorded."""
+
+    class _Escapes(BaseException):
+        pass
+
+    monkeypatch.setattr(fetch.store, "init", lambda *a, **k: None)
+    monkeypatch.setattr(
+        fetch,
+        "load_registry",
+        lambda *a, **k: [registry.Source(vendor="greenhouse", slug="acme", company="acme")],
+    )
+    monkeypatch.setattr(fetch.store, "sources_by_recency", lambda keys, path=None: keys)
+
+    def boom(slug, *, company=None):
+        raise _Escapes("not an ordinary Exception")
+
+    monkeypatch.setattr(fetch, "ADAPTERS", {"greenhouse": boom})
+
+    with pytest.raises(_Escapes):
+        fetch.main()
 
 
 # --- config getter fail-loud (FR-004/FR-010) --------------------------------
