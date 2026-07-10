@@ -634,6 +634,64 @@ def test_migrate_adding_source_progress_does_not_alter_existing_score(
     assert row["skills_fit"] == 7
 
 
+# --- sources_by_recency (007 US2/T008: dispatch ordering, data-model.md R4) -
+
+
+def test_sources_by_recency_never_fetched_sorts_first(tmp_path: Path) -> None:
+    db = str(tmp_path / "jobs.db")
+    store.init(db)
+    store.mark_converged("greenhouse", "acme", "2026-06-01T00:00:00+00:00", db)
+
+    # The never-fetched key ("lever", "globex") is placed SECOND in the input
+    # so a naive "echo input order" implementation would not coincidentally
+    # pass -- it must still sort first (NULLS FIRST).
+    keys = [("greenhouse", "acme"), ("lever", "globex")]
+    ordered = store.sources_by_recency(keys, db)
+
+    assert ordered == [("lever", "globex"), ("greenhouse", "acme")]
+
+
+def test_sources_by_recency_orders_converged_keys_oldest_first(tmp_path: Path) -> None:
+    db = str(tmp_path / "jobs.db")
+    store.init(db)
+    store.mark_converged("greenhouse", "acme", "2026-06-03T00:00:00+00:00", db)
+    store.mark_converged("lever", "globex", "2026-06-01T00:00:00+00:00", db)
+    store.mark_converged("workday", "initech", "2026-06-02T00:00:00+00:00", db)
+
+    keys = [("greenhouse", "acme"), ("lever", "globex"), ("workday", "initech")]
+    ordered = store.sources_by_recency(keys, db)
+
+    # oldest last_converged_at first: 06-01 < 06-02 < 06-03
+    assert ordered == [("lever", "globex"), ("workday", "initech"), ("greenhouse", "acme")]
+
+
+def test_sources_by_recency_preserves_input_order_for_equal_timestamps(
+    tmp_path: Path,
+) -> None:
+    """Ties (including all-never-fetched) are a STABLE sort on the input
+    order, so concurrency=1 reproduces registry order on a fresh db
+    (contracts/fetch-stage.md)."""
+    db = str(tmp_path / "jobs.db")
+    store.init(db)
+    same = "2026-06-01T00:00:00+00:00"
+    store.mark_converged("greenhouse", "acme", same, db)
+    store.mark_converged("lever", "globex", same, db)
+    store.mark_converged("workday", "initech", same, db)
+
+    keys = [("workday", "initech"), ("greenhouse", "acme"), ("lever", "globex")]
+    assert store.sources_by_recency(keys, db) == keys
+
+
+def test_sources_by_recency_all_never_fetched_preserves_registry_order(
+    tmp_path: Path,
+) -> None:
+    db = str(tmp_path / "jobs.db")
+    store.init(db)
+
+    keys = [("workday", "initech"), ("greenhouse", "acme"), ("lever", "globex")]
+    assert store.sources_by_recency(keys, db) == keys
+
+
 # --- retention purge (FR-015, data-model.md "Retention rules") --------------
 
 

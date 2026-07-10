@@ -17,12 +17,17 @@ fully catches up (truncated for longer than `JOBAGENT_STALENESS_BOUND_DAYS`)
 is reported with `persistent=True` so callers can surface it as a standing
 problem rather than routine backlog.
 
-Data contract: `run_source(adapter, source, *, criteria, store_, clock, now)
--> SourceResult` where `adapter` exposes `list_postings(slug, *, company)`
-and `fetch_description(posting)`, `source` exposes `.vendor`, `.slug`,
-`.company`, and `store_` exposes the `job_agent.store` module surface
-(`existing_external_ids`, `upsert_postings`, `get_last_converged`,
-`mark_converged`, `seed_source`).
+Data contract: `run_source(adapter, source, *, criteria, store_, clock, now,
+stage_deadline) -> SourceResult` where `adapter` exposes
+`list_postings(slug, *, company)` and `fetch_description(posting)`, `source`
+exposes `.vendor`, `.slug`, `.company`, and `store_` exposes the
+`job_agent.store` module surface (`existing_external_ids`,
+`upsert_postings`, `get_last_converged`, `mark_converged`, `seed_source`).
+`stage_deadline` (optional) is fetch.py's stage-wide budget deadline
+(specs/007-overnight-scale, R5): when given, it clamps this source's
+effective deadline to `min(per-source deadline, stage_deadline)` so one
+in-flight board cannot overrun the stage budget; the default `None` leaves
+006 per-source behavior byte-identical.
 """
 
 from __future__ import annotations
@@ -146,6 +151,7 @@ def run_source(
     store_: Any = store,
     clock: Callable[[], float] = time.monotonic,
     now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+    stage_deadline: float | None = None,
 ) -> SourceResult:
     """Run the two-phase fetch (list, then filtered detail) for one source.
 
@@ -158,6 +164,11 @@ def run_source(
         store_: The store module (or a stub) to read/write bookkeeping.
         clock: Monotonic clock used for the deadline backstop.
         now: Wall-clock timestamp provider for convergence bookkeeping.
+        stage_deadline: Optional absolute monotonic deadline for the whole
+            fetch stage (007 R5). When given, this source's effective
+            deadline is `min(clock() + fetch_deadline_seconds(),
+            stage_deadline)`; `None` (default) preserves 006 behavior
+            exactly (FR-009).
 
     Returns:
         A `SourceResult` summarizing what happened.
@@ -186,6 +197,8 @@ def run_source(
 
     cap = max_detail_per_source()
     deadline = clock() + fetch_deadline_seconds()
+    if stage_deadline is not None:
+        deadline = min(deadline, stage_deadline)
     described = []
     skipped = 0
     truncated = False

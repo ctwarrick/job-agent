@@ -301,6 +301,36 @@ def mark_converged(source: str, company: str, when: str, path: str | None = None
         )
 
 
+def sources_by_recency(
+    keys: list[tuple[str, str]], path: str | None = None
+) -> list[tuple[str, str]]:
+    """Order registry (source, company) keys least-recently-fully-fetched
+    first (FR-006, data-model.md R4).
+
+    Never-fetched keys (no `source_progress` row) sort first, then keys with
+    the oldest `last_converged_at`; ISO-8601 timestamps compare correctly as
+    plain strings. Ties -- including "everything is never-fetched" -- are
+    resolved by a stable sort that preserves `keys`' input order, so a fresh
+    db reproduces registry order exactly (contracts/fetch-stage.md).
+
+    Args:
+        keys: (source, company) pairs, typically built from the registry.
+        path: Optional path to jobs.db; defaults to data_path("jobs.db").
+
+    Returns:
+        `keys` reordered oldest/never-fetched first.
+    """
+    with connect(path) as conn:
+        rows = conn.execute(
+            "SELECT source, company, last_converged_at FROM source_progress"
+        ).fetchall()
+    last_converged = {(r["source"], r["company"]): r["last_converged_at"] for r in rows}
+    return sorted(
+        keys,
+        key=lambda k: (last_converged.get(k) is not None, last_converged.get(k) or ""),
+    )
+
+
 def seed_source(source: str, company: str, when: str, path: str | None = None) -> None:
     """Insert a last-converged timestamp only if no row exists yet.
 

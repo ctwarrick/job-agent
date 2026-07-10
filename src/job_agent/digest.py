@@ -175,18 +175,22 @@ def _degradation_facts(
         failed_sources: List of {source, company_slug, error} dicts, or None.
         scoring: The score stage's {scored, remaining, cap_reason}, or None.
         partial_sources: List of partially-fetched source dicts
-            {source, company_slug, new, skipped, truncated, persistent}, or None
-            (FR-014).
+            {source, company_slug, new, skipped, truncated, persistent}, or a
+            budget-deferred board {source, company_slug, reason=
+            "budget_deferred"}, or None (FR-014, 007 FR-005).
 
     Returns:
         Dict with source_count, names (["source/company_slug", ...]), remaining,
-        cap_reason, partial_count, and partials (one normalized dict per partial
-        source); or None when nothing degraded.
+        cap_reason, partial_count, partials (one normalized dict per ordinary
+        partial source), deferred_count, and deferred (["source/company_slug",
+        ...] for budget-deferred boards); or None when nothing degraded.
     """
     source_count = len(failed_sources) if failed_sources else 0
     names = [f"{f['source']}/{f['company_slug']}" for f in (failed_sources or [])]
     remaining = scoring.get("remaining", 0) if scoring else 0
     cap_reason = scoring.get("cap_reason") if scoring else None
+    ordinary = [p for p in (partial_sources or []) if p.get("reason") != "budget_deferred"]
+    deferred_sources = [p for p in (partial_sources or []) if p.get("reason") == "budget_deferred"]
     partials = [
         {
             "name": f"{p['source']}/{p['company_slug']}",
@@ -195,10 +199,12 @@ def _degradation_facts(
             "truncated": p.get("truncated", False),
             "persistent": p.get("persistent", False),
         }
-        for p in (partial_sources or [])
+        for p in ordinary
     ]
     partial_count = len(partials)
-    if not source_count and remaining <= 0 and not partial_count:
+    deferred = [f"{p['source']}/{p['company_slug']}" for p in deferred_sources]
+    deferred_count = len(deferred)
+    if not source_count and remaining <= 0 and not partial_count and not deferred_count:
         return None
     return {
         "source_count": source_count,
@@ -207,6 +213,8 @@ def _degradation_facts(
         "cap_reason": cap_reason,
         "partial_count": partial_count,
         "partials": partials,
+        "deferred_count": deferred_count,
+        "deferred": deferred,
     }
 
 
@@ -221,6 +229,9 @@ def _degradation_messages(facts: dict) -> list[str]:
     "partially fetched ... queued for the next run"; one stuck past the
     staleness bound reads as a persistent "behind" degradation needing action
     (FR-014/FR-015) -- both distinct from a wholly "unreachable" failed source.
+    A budget-deferred board (never dispatched because the fetch-stage budget
+    expired) reads as "deferred by the fetch budget ... queued for the next
+    run" -- a third, distinct category from both (007 FR-005).
 
     Args:
         facts: The dict from `_degradation_facts`.
@@ -255,6 +266,13 @@ def _degradation_messages(facts: dict) -> list[str]:
                 f"{p['name']} partially fetched: {p['new']} stored, "
                 f"{p['skipped']} skipped, the rest queued for the next run."
             )
+    deferred_count = facts.get("deferred_count", 0)
+    if deferred_count:
+        deferred_names = ", ".join(facts.get("deferred", []))
+        messages.append(
+            f"{deferred_count} board{'s' if deferred_count != 1 else ''} deferred by "
+            f"the fetch budget; queued for the next run: {deferred_names}"
+        )
     return messages
 
 

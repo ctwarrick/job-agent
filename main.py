@@ -78,12 +78,14 @@ def _degradation_summary(
         failed_sources: Fetch failure records ({source, company_slug, error}).
         scoring: The score stage's {scored, remaining, cap_reason} signal.
         partial_sources: Partially-fetched source records (skips / backstop
-            truncation / persistent staleness), or None.
+            truncation / persistent staleness), or budget-deferred board
+            records ({source, company_slug, reason="budget_deferred"}), or
+            None.
 
     Returns:
-        A summary like "2 sources failed; 1 source partial; 919 unscored
-        (cap=cost)", or None when the run was clean (no failed/partial sources,
-        nothing left unscored).
+        A summary like "2 sources failed; 1 source partial; 1 board deferred;
+        919 unscored (cap=cost)", or None when the run was clean (no
+        failed/partial/deferred sources, nothing left unscored).
     """
     facts = digest._degradation_facts(failed_sources, scoring, partial_sources)
     if facts is None:
@@ -95,6 +97,9 @@ def _degradation_summary(
     p = facts.get("partial_count", 0)
     if p:
         parts.append(f"{p} source{'s' if p != 1 else ''} partial")
+    d = facts.get("deferred_count", 0)
+    if d:
+        parts.append(f"{d} board{'s' if d != 1 else ''} deferred")
     remaining = facts["remaining"]
     if remaining > 0:
         cap = facts["cap_reason"]

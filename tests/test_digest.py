@@ -343,6 +343,82 @@ def test_no_notice_when_no_failed_no_partial_no_backlog() -> None:
     assert _degradation_html(None, clean, []) == ""
 
 
+# --- budget-deferred category, distinct from failed/partial (007 US2/T010) -
+# contracts/fetch-stage.md "Outcome reporting": partial_sources entries with
+# reason="budget_deferred" render as a distinct degraded category (named
+# boards + a count), separate from failed ("unreachable") and ordinary
+# per-source-partial ("partially fetched").
+
+_DEFERRED_SOURCES = [
+    {"source": "workday", "company_slug": "cyberdyne:Cyberdyne:wd3", "reason": "budget_deferred"},
+    {"source": "greenhouse", "company_slug": "hooli", "reason": "budget_deferred"},
+]
+
+
+def test_deferred_sources_render_distinct_category_in_text() -> None:
+    text = _degradation_text(None, None, _DEFERRED_SOURCES)
+    assert "cyberdyne:Cyberdyne:wd3" in text
+    assert "hooli" in text
+    assert "deferred" in text.lower()
+    assert "2" in text  # deferred count
+    assert "unreachable" not in text.lower()
+    # not the ordinary-partial wording -- a distinct category, not a reuse
+    assert "partially fetched" not in text.lower()
+
+
+def test_deferred_sources_render_distinct_category_in_html() -> None:
+    html = _degradation_html(None, None, _DEFERRED_SOURCES)
+    assert "cyberdyne:Cyberdyne:wd3" in html
+    assert "hooli" in html
+    assert "deferred" in html.lower()
+    assert "partially fetched" not in html.lower()
+
+
+def test_mixed_deferred_and_ordinary_partial_render_in_separate_categories() -> None:
+    """A run with both an ordinary partial and a deferred board keeps them
+    distinct: the ordinary partial keeps 'partially fetched' wording on its
+    own line, the deferred board gets 'deferred' wording on its own line --
+    neither category swallows the other."""
+    mixed = _PARTIAL_SOURCES + _DEFERRED_SOURCES
+    text = _degradation_text(None, None, mixed)
+
+    assert "globex:Globex:wd5" in text
+    assert "hooli" in text
+    assert "deferred" in text.lower()
+
+    partial_line = next(line for line in text.splitlines() if "globex:Globex:wd5" in line)
+    deferred_line = next(line for line in text.splitlines() if "hooli" in line)
+    assert "partially fetched" in partial_line.lower()
+    assert "deferred" not in partial_line.lower()
+    assert "partially fetched" not in deferred_line.lower()
+
+
+def test_main_includes_deferred_notice_in_body(tmp_path: Path, monkeypatch) -> None:
+    """FR-005: the deferred category rides along in the delivered digest
+    body, the same way the ordinary-partial category already does."""
+    db = tmp_path / "jobs.db"
+    from job_agent import store
+
+    store.init(str(db))
+    monkeypatch.chdir(tmp_path)
+    _set_smtp_env(monkeypatch)
+
+    sent = {}
+
+    def fake_send(subject: str, text: str, html: str) -> None:
+        sent["text"] = text
+        sent["html"] = html
+
+    monkeypatch.setattr(digest, "_send", fake_send)
+
+    result = digest.main(partial_sources=_DEFERRED_SOURCES)
+
+    assert result is True
+    assert "hooli" in sent["text"]
+    assert "deferred" in sent["text"].lower()
+    assert "hooli" in sent["html"]
+
+
 def test_main_includes_partial_notice_in_body(tmp_path: Path, monkeypatch) -> None:
     """FR-014: the partial/degraded category rides along in the delivered
     digest body."""

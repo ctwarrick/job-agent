@@ -544,6 +544,82 @@ def test_startup_coherence_check_exits_before_any_stage_runs(
     assert not list(tmp_path.rglob("jobs.db")), "no db may be created before the check exits"
 
 
+# --- deferred boards + DST invariant (007 US2/T011) -------------------------
+
+
+def test_deferred_only_run_sets_degraded_outcome_and_prints_run_success(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """A run whose fetch returns ONLY budget-deferred boards (no failures, no
+    ordinary partials) is non-fatal degradation: outcome 'degraded', the
+    digest still sends, RUN_SUCCESS still prints, and the run detail names
+    the deferral distinctly (not as an ordinary partial) -- consistent with
+    FR-005's distinct-category rendering flowing through to the run row."""
+    db = _setup_db(tmp_path, monkeypatch)
+    deferred = [
+        {
+            "source": "workday",
+            "company_slug": "cyberdyne:Cyberdyne:wd3",
+            "reason": "budget_deferred",
+        }
+    ]
+    calls = _patch_stages(monkeypatch, partial_sources=deferred)
+
+    _run_main_allow_exit(monkeypatch)
+
+    assert calls == ["fetch", "score", "digest"]
+    row = _latest_run(db)
+    assert row["outcome"] == "degraded"
+    assert "deferred" in (row["detail"] or "").lower()
+
+    out = capsys.readouterr().out
+    assert f"RUN_SUCCESS digest_date={store.digest_date()}" in out
+
+
+def _frozen_datetime_class(instant: datetime) -> type:
+    """Build a datetime subclass whose .now(tz) returns `instant` (must be
+    tz-aware) converted to `tz`, or unchanged when tz is None. Used to freeze
+    store.digest_date's clock at a specific UTC attempt instant without
+    disturbing any other datetime behavior (it is still a real datetime
+    subclass, so fromisoformat etc. are untouched).
+
+    Args:
+        instant: A tz-aware UTC datetime to freeze "now" at.
+
+    Returns:
+        A datetime subclass suitable for `monkeypatch.setattr(store,
+        "datetime", ...)`.
+    """
+
+    class _Frozen(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return instant if tz is None else instant.astimezone(tz)
+
+    return _Frozen
+
+
+def test_digest_date_after_local_midnight_for_all_cron_attempts_both_dst(
+    monkeypatch,
+) -> None:
+    """C1/FR-011 (R2): for each `0 8,10,12` UTC cron attempt hour, in both a
+    winter (PST) and a summer (PDT) date, store.digest_date(LA) returns the
+    SAME calendar day as the UTC attempt instant -- every attempt fires after
+    local midnight, so the run-start digest_date is always the intended
+    delivery day, never the prior night's."""
+    for date_str in ("2026-01-15", "2026-07-15"):  # PST / PDT, no DST edge
+        for hour in (8, 10, 12):
+            instant = datetime.fromisoformat(f"{date_str}T{hour:02d}:00:00+00:00")
+            monkeypatch.setattr(store, "datetime", _frozen_datetime_class(instant))
+
+            result = store.digest_date("America/Los_Angeles")
+
+            assert result == date_str, (
+                f"{date_str}T{hour:02d}:00Z -> digest_date={result}; every "
+                "cron attempt must land after local midnight"
+            )
+
+
 def test_purge_failure_does_not_fail_the_run(tmp_path: Path, monkeypatch, capsys) -> None:
     """Purge is post-send housekeeping: an exception in it must not abort an
     already-delivered run -- exit stays 0 and RUN_SUCCESS still prints."""

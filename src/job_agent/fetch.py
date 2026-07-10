@@ -24,6 +24,9 @@ from __future__ import annotations
 
 import os
 import sys
+import time
+from datetime import datetime, timezone
+from typing import Callable
 
 from . import resilient, store
 from .adapters import greenhouse, icims, lever, talemetry, workday
@@ -112,8 +115,12 @@ def execution_window_seconds() -> int:
     return resilient._positive_int_env("JOBAGENT_EXECUTION_WINDOW_SECONDS", 0)
 
 
-def main() -> tuple[list[dict], list[dict]]:
+def main(clock: Callable[[], float] = time.monotonic) -> tuple[list[dict], list[dict]]:
     """Fetch every registered source, upserting what succeeds.
+
+    Boards are dispatched in `store.sources_by_recency` order (least-recently-
+    fully-fetched first -- FR-006), computed once up front, so the oldest or
+    never-fetched board is served first across the whole registry.
 
     A per-source failure (an adapter raising, a resilient source whose listing
     failed, or a registry vendor with no adapter) is non-fatal (FR-006): it is
@@ -123,22 +130,66 @@ def main() -> tuple[list[dict], list[dict]]:
     can flag it as degraded (FR-014). Raw error text stays in the logs, out of
     the returned records' caller-facing uses (Principle VI).
 
+    A successful whole-board fetch (greenhouse/lever, always fully fetched in
+    one call) also marks the source converged, extending 006's bookkeeping to
+    single-request vendors so the recency ordering is total (data-model.md R4).
+
+    A stage-wide wall-clock budget (`fetch_budget_seconds()`) bounds the whole
+    loop (FR-003/R5): once `clock()` passes the once-computed `stage_deadline`,
+    no further board is submitted. Boards never dispatched are reported as
+    `partial_sources` entries with `reason="budget_deferred"` and do NOT get
+    marked converged, so they sort first on the next run (no starvation --
+    SC-003). A dispatched resilient board is given `stage_deadline` so its own
+    per-source deadline is clamped to whichever is nearer (FR-009).
+
     The deterministic filter criteria are loaded lazily, only when a resilient
     source is actually dispatched, so a run with no two-phase sources needs no
     filter.toml; a missing/invalid criteria file then fails loud (Principle V).
+
+    Args:
+        clock: Monotonic clock used for the stage budget; overridable for
+            tests (default `time.monotonic`).
 
     Returns:
         A ``(failed_sources, partial_sources)`` tuple. ``failed_sources`` is a
         list of {source, company_slug, error} dicts; ``partial_sources`` is a
         list of {source, company_slug, new, skipped, truncated, persistent}
-        dicts. Both are empty when every source fetched cleanly.
+        dicts, or {source, company_slug, reason} for a budget-deferred board.
+        Both are empty when every source fetched cleanly.
     """
     store.init()
     total_new = 0
     failed: list[dict] = []
     partial: list[dict] = []
     criteria = None
-    for source in load_registry():
+
+    sources = load_registry()
+    # Registry uniqueness is (vendor, slug), not (vendor, company): a company
+    # can legitimately run two boards (e.g. two Workday sites under one
+    # tenant) sharing (vendor, company). Dedup only the ordering *keys* --
+    # never the Source objects themselves, or a shared-key board is silently
+    # dropped. `dict.fromkeys` dedups while preserving first-seen registry
+    # order, so `sources_by_recency` still receives keys in registry order
+    # (ties stay registry-order-stable); `sorted` on `rank` is itself stable,
+    # so two Sources sharing a key dispatch adjacently in registry order.
+    unique_keys = list(dict.fromkeys((s.vendor, s.company) for s in sources))
+    ordered_keys = store.sources_by_recency(unique_keys)
+    rank = {key: i for i, key in enumerate(ordered_keys)}
+    ordered_sources = sorted(sources, key=lambda s: rank[(s.vendor, s.company)])
+    stage_deadline = clock() + fetch_budget_seconds()
+
+    for i, source in enumerate(ordered_sources):
+        if clock() > stage_deadline:
+            for deferred in ordered_sources[i:]:
+                partial.append(
+                    {
+                        "source": deferred.vendor,
+                        "company_slug": deferred.slug,
+                        "reason": "budget_deferred",
+                    }
+                )
+            break
+
         adapter = ADAPTERS.get(source.vendor)
         if adapter is None:
             error = f"no adapter for vendor {source.vendor!r}"
@@ -148,7 +199,9 @@ def main() -> tuple[list[dict], list[dict]]:
         if source.vendor in RESILIENT_VENDORS:
             if criteria is None:
                 criteria = load_criteria()
-            result = resilient.run_source(adapter, source, criteria=criteria)
+            result = resilient.run_source(
+                adapter, source, criteria=criteria, stage_deadline=stage_deadline
+            )
             if result.error:
                 print(f"  ! {source.vendor}/{source.slug} failed: {result.error}", file=sys.stderr)
                 failed.append(
@@ -185,6 +238,9 @@ def main() -> tuple[list[dict], list[dict]]:
                 postings = adapter(source.slug, company=source.company)
                 added = store.upsert_postings(postings)
                 total_new += added
+                store.mark_converged(
+                    source.vendor, source.company, datetime.now(timezone.utc).isoformat()
+                )
                 print(
                     f"  {source.vendor:12} {source.slug:20} "
                     f"{len(postings):4} fetched, {added:4} new"
