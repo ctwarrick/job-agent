@@ -137,7 +137,10 @@ Every subagent prompt must contain:
 - Immediately before dispatching a review, run `git status` and skim the diff
   range for changes no dispatch in this session produced; surface any
   out-of-band edits to the human and get them adopted into the plan
-  (Amendments) or reverted before the reviewer sees them.
+  (Amendments) or reverted before the reviewer sees them. In the same step,
+  `git add -N` any new/untracked in-scope files so the `git diff HEAD` the
+  reviewer consumes includes them — an untracked new file is invisible to the
+  diff and reads as missing work, drawing a spurious REVISE.
 - A background or long-running dispatch (e.g. a Codex review) is announced
   when started — what is running, expected duration, how you're monitoring —
   and polled with an interim status line rather than going silent until it

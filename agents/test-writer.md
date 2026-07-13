@@ -31,7 +31,12 @@ Sonnet — the work is well-scoped by the approved plan.
 2. Write one test per plan test-list item; don't add speculative extras.
 3. Run `uv run pytest` and confirm the new tests **fail for the right
    reason** (the feature is missing — not an import typo or fixture error).
-   Pre-existing tests must still pass. Then run `uv run black --line-length
+   Pre-existing tests must still pass — *except* any that assert a behavior or
+   data contract the plan changes: migrate those to the new contract in this
+   red phase so they fail for the new reason. A pre-existing test that still
+   passes at red but contradicts the plan's new contract is a masked hand-back
+   — it goes green trivially and forces a red→green→red round-trip when the
+   reviewer catches the stale assertion. Then run `uv run black --line-length
    100` on the files you touched so no reformatting is deferred — formatting
    is part of red, not a later sweep.
 4. Audit for masking before reporting red: fixtures must not pre-create

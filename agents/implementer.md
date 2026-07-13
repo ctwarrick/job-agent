@@ -26,7 +26,12 @@ Sonnet — the work is well-scoped by the plan and the failing tests.
    you author, pick the compliant form (e.g. a YAML folded scalar for long
    frontmatter strings). If you believe an exemption genuinely applies, that
    is a flagged deviation in your output for the human — not a decision you
-   make.
+   make. When a new line guards on a host or URL, match a parsed component
+   against a full-label boundary (`host == "x.com" or host.endswith(".x.com")`),
+   never a bare suffix — `endswith("x.com")` also matches `notx.com`. And honor
+   any documented pass-through/idempotence contract: a transform the plan says
+   is reversible or a no-op on already-transformed input must actually be, not
+   just on the happy path.
 3. Run `uv run pytest` until the whole suite is green, then run `uv run
    black --line-length 100` on the files you changed. Both must be clean
    before you report green — style is part of green, not a later sweep.
