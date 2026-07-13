@@ -15,10 +15,14 @@ filtering happens before any detail fetch is paid for):
      pages, and a short/empty page also ends the walk), returning title/
      externalPath/locationsText/postedOn stubs scoped to a US country facet
      (dropped and retried facet-free when a tenant 400s it), with an empty
-     `description` and zero detail GETs.
-  2. `fetch_description(posting, ...) -> str` issues one
-     `GET .../wday/cxs/{tenant}/{site}{externalPath}` for a single stub
-     and returns its full job description.
+     `description` and zero detail GETs. Each stub's `url` is the human-facing
+     public careers page (`https://{tenant}.{host}.myworkdayjobs.com/{site}
+     {externalPath}`), not the CXS API endpoint, so email links resolve for a
+     browser.
+  2. `fetch_description(posting, ...) -> str` reconstructs the CXS detail
+     endpoint from `posting.url` (re-inserting `/wday/cxs/{tenant}` after the
+     host) and issues one `GET` against it for a single stub, returning its
+     full job description.
 
 The display company name is the caller-supplied `company` kwarg (resolved
 upstream from `registry.toml`); it falls back to the tenant slug itself
@@ -33,6 +37,7 @@ from __future__ import annotations
 
 import sys
 import time
+from urllib.parse import urlparse
 
 import requests
 from requests import RequestException
@@ -110,6 +115,7 @@ def list_postings(slug: str, *, company: str | None = None, timeout: int = 20) -
     tenant, site, host = _split_slug(slug)
     company = company or tenant
     base = f"https://{tenant}.{host}.myworkdayjobs.com/wday/cxs/{tenant}/{site}"
+    public_base = f"https://{tenant}.{host}.myworkdayjobs.com/{site}"
 
     raw_jobs: list[dict] = []
     offset = 0
@@ -162,7 +168,7 @@ def list_postings(slug: str, *, company: str | None = None, timeout: int = 20) -
                 title=job.get("title", ""),
                 location=job.get("locationsText", ""),
                 description="",
-                url=f"{base}{external_path}",
+                url=f"{public_base}{external_path}",
                 posted_at=job.get("postedOn"),
             )
         )
@@ -175,7 +181,8 @@ def fetch_description(posting: Posting, *, timeout: int = 20) -> str:
 
     Args:
         posting: A stub returned by `list_postings`; its `url` is the
-            detail endpoint.
+            public careers page, from which the CXS detail endpoint is
+            reconstructed.
         timeout: Request timeout in seconds (default 20).
 
     Returns:
@@ -184,7 +191,10 @@ def fetch_description(posting: Posting, *, timeout: int = 20) -> str:
     Raises:
         requests.HTTPError: On API request failure.
     """
-    resp = requests.get(posting.url, headers=HEADERS, timeout=timeout)
+    p = urlparse(posting.url)
+    tenant = p.netloc.split(".")[0]
+    cxs = f"{p.scheme}://{p.netloc}/wday/cxs/{tenant}{p.path}"
+    resp = requests.get(cxs, headers=HEADERS, timeout=timeout)
     resp.raise_for_status()
     detail = resp.json()
     time.sleep(0.5)  # be polite

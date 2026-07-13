@@ -243,8 +243,7 @@ def test_list_postings_returns_stubs_with_mapped_fields(
     assert posting.location == "Seattle, WA"
     assert posting.description == ""
     assert posting.url == (
-        f"https://{TENANT}.{HOST}.myworkdayjobs.com/wday/cxs/{TENANT}/{SITE}"
-        "/job/Remote/Engineer_R-1"
+        f"https://{TENANT}.{HOST}.myworkdayjobs.com/{SITE}/job/Remote/Engineer_R-1"
     )
     assert posting.url.startswith("https://")
     assert posting.url.endswith("/job/Remote/Engineer_R-1")
@@ -444,10 +443,7 @@ def test_fetch_description_issues_one_get_and_returns_description(fake_requests)
         title="Software Engineer",
         location="Seattle, WA",
         description="",
-        url=(
-            f"https://{TENANT}.{HOST}.myworkdayjobs.com/wday/cxs/{TENANT}/{SITE}"
-            "/job/Remote/Engineer_R-1"
-        ),
+        url=f"https://{TENANT}.{HOST}.myworkdayjobs.com/{SITE}/job/Remote/Engineer_R-1",
         posted_at="2026-06-01",
     )
     fake_requests.get_responses = [_detail_payload("Full job description.")]
@@ -492,10 +488,7 @@ def test_fetch_description_politeness_sleep_called(fake_requests, fake_sleep) ->
         title="Software Engineer",
         location="Seattle, WA",
         description="",
-        url=(
-            f"https://{TENANT}.{HOST}.myworkdayjobs.com/wday/cxs/{TENANT}/{SITE}"
-            "/job/Remote/Engineer_R-1"
-        ),
+        url=f"https://{TENANT}.{HOST}.myworkdayjobs.com/{SITE}/job/Remote/Engineer_R-1",
         posted_at="2026-06-01",
     )
     fake_requests.get_responses = [_detail_payload()]
@@ -503,3 +496,77 @@ def test_fetch_description_politeness_sleep_called(fake_requests, fake_sleep) ->
     workday.fetch_description(stub)
 
     assert len(fake_sleep) >= 1
+
+
+# --- 15: url becomes the public careers page; fetch_description ------------
+# reconstructs the CXS endpoint from it -------------------------------------
+
+
+def test_list_postings_returns_public_url_without_cxs_segment(fake_requests) -> None:
+    # Digest links must resolve to the human-facing careers page, not the
+    # raw CXS API JSON endpoint -- so `url` must drop the `/wday/cxs/{tenant}`
+    # segment entirely.
+    fake_requests.post_responses = [
+        _jobs_page(1, [_job_posting(external_path="/job/USA-CA/Software-Engineer_R-123")])
+    ]
+
+    [posting] = workday.list_postings(SLUG)
+
+    expected_url = (
+        f"https://{TENANT}.{HOST}.myworkdayjobs.com/{SITE}/job/USA-CA/Software-Engineer_R-123"
+    )
+    assert posting.url == expected_url
+    assert "/wday/cxs/" not in posting.url
+
+
+def test_fetch_description_gets_reconstructed_cxs_endpoint_from_public_url(fake_requests) -> None:
+    # Given a stub whose `url` is already the NEW public form (no CXS
+    # segment), fetch_description must GET the reconstructed CXS detail
+    # endpoint: {scheme}://{netloc}/wday/cxs/{tenant}{path}, where tenant is
+    # the first hostname label.
+    stub = Posting(
+        source="workday",
+        company=TENANT,
+        external_id="/job/USA-CA/Software-Engineer_R-123",
+        title="Software Engineer",
+        location="Seattle, WA",
+        description="",
+        url=f"https://{TENANT}.{HOST}.myworkdayjobs.com/{SITE}/job/USA-CA/Software-Engineer_R-123",
+        posted_at="2026-06-01",
+    )
+    fake_requests.get_responses = [_detail_payload("Full job description.")]
+
+    description = workday.fetch_description(stub)
+
+    get_calls = [c for c in fake_requests.calls if c["method"] == "get"]
+    assert len(get_calls) == 1
+    assert get_calls[0]["url"] == (
+        f"https://{TENANT}.{HOST}.myworkdayjobs.com/wday/cxs/{TENANT}/{SITE}"
+        "/job/USA-CA/Software-Engineer_R-123"
+    )
+    assert "Full job description." in description
+
+
+def test_fetch_description_round_trips_to_cxs_endpoint_for_listing_stub(fake_requests) -> None:
+    # A stub produced by list_postings must carry the public-form url (no
+    # /wday/cxs/ segment) -- otherwise the "round trip" below is trivial,
+    # since a stub that already holds the CXS url would pass straight
+    # through fetch_description unchanged. With the public-form url in
+    # place, fetch_description must still round-trip to the EXACT old CXS
+    # URL, so no detail-fetch behavior regresses when the public url
+    # replaces it.
+    fake_requests.post_responses = [
+        _jobs_page(1, [_job_posting(external_path="/job/USA-CA/Software-Engineer_R-123")])
+    ]
+    [stub] = workday.list_postings(SLUG)
+    assert "/wday/cxs/" not in stub.url
+
+    fake_requests.get_responses = [_detail_payload("Detail body text.")]
+    workday.fetch_description(stub)
+
+    get_calls = [c for c in fake_requests.calls if c["method"] == "get"]
+    assert len(get_calls) == 1
+    assert get_calls[0]["url"] == (
+        f"https://{TENANT}.{HOST}.myworkdayjobs.com/wday/cxs/{TENANT}/{SITE}"
+        "/job/USA-CA/Software-Engineer_R-123"
+    )
