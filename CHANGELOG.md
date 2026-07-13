@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it reaches 1.0.0. Before 1.0.0, minor versions may include breaking changes.
 
+## [3.0.1] - 2026-07-13
+
+### Fixed
+
+- **Workday digest links resolved to raw JSON**: `list_postings`
+  (`src/job_agent/adapters/workday.py`) stored the CXS (Career Site
+  eXperience Service) API endpoint
+  (`.../wday/cxs/{tenant}/{site}{externalPath}`) as `Posting.url`, so
+  clicking a Workday link in the emailed digest opened the API's JSON
+  response instead of the careers page. `list_postings` now stores the
+  public careers-page URL
+  (`https://{tenant}.{host}.myworkdayjobs.com/{site}{externalPath}`), and
+  `fetch_description` reconstructs the CXS detail endpoint from that public
+  URL to issue its GET, preserving the existing two-phase list/detail
+  contract. Workday URLs already stored in `jobs.db` from prior runs were
+  corrected in place with a one-time, non-repository migration; no user
+  action is needed.
+
 ## [3.0.0] - 2026-07-10
 
 Permanent fix for the overnight-run scaling problem that 2.4.2 band-aided:
